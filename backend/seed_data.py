@@ -44,6 +44,9 @@ TEMPLATES = {
     "Miscellaneous": {"discipline": "Architectural", "stage": "Fit-off", "system": "Fixtures & Fittings", "trade": "Fitout & Fixtures Co", "prefix": "MI",
         "steps": [("Location set-out confirmed", "inspection"), ("Backing / bracket / noggin installed", "inspection"), ("Item mounted & secured", "inspection"),
                   ("Photo evidence of installation", "task"), ("QA sign-off", "inspection")]},
+    "Robe Jamb": {"discipline": "Architectural", "stage": "Fit-off", "system": "Carpentry / Joinery", "trade": "Cranmore Carpenters", "prefix": "RJ",
+        "steps": [("Opening set out to plan & robe schedule", "inspection"), ("Jamb supplied & checked (Criterion / Bowens)", "inspection"),
+                  ("Jamb installed plumb & square, fixed", "inspection"), ("Photo of installed robe jamb", "task"), ("QA sign-off", "inspection")]},
 }
 
 COMPANIES = [
@@ -66,6 +69,51 @@ RACF_ROOMS = [
     ("Typical Corridor", ["Corridor"], False),
 ]
 RACF_RES_FLOORS = ["Ground Floor", "First Floor", "Second Floor"]
+
+# ------------------------------------------------------------------ ILA apartments
+# Real apartment registry extracted from the ILA type plan drawings (A2800-A2812
+# "ILA Finish Types" tables). Each entry: (apt_number, level_idx, apt_type, bed_count, finish, mirrored).
+# level_idx maps to ILA_LEVELS below; apt_type is the apartment type plan the unit is built to.
+ILA_LEVELS = ["Ground Floor", "First Floor", "Second Floor"]
+ILA_APARTMENTS = [
+    ("G01", 0, 2, 2, "Standard", True), ("G02", 0, 2, 2, "Standard", False), ("G03", 0, 2, 2, "Standard", True),
+    ("G04", 0, 5, 2, "Standard", False), ("G05", 0, 6, 2, "Standard", False), ("G06", 0, 1, 1, "Standard", True),
+    ("G07", 0, 1, 1, "Standard", False), ("G08", 0, 1, 1, "Standard", True), ("G09", 0, 3, 2, "Standard", True),
+    ("G10", 0, 1, 1, "Standard", False), ("G11", 0, 4, 2, "Standard", False), ("G12", 0, 13, 2, "Standard", False),
+    ("G13", 0, 1, 1, "Standard", True), ("G14", 0, 1, 1, "Standard", False), ("G15", 0, 6, 2, "Standard", True),
+    ("G16", 0, 2, 2, "Standard", False), ("G17", 0, 2, 2, "Standard", True), ("G18", 0, 2, 2, "Standard", False),
+    ("101", 1, 2, 2, "Standard", True), ("102", 1, 2, 2, "Standard", False), ("103", 1, 2, 2, "Standard", True),
+    ("104", 1, 5, 2, "Standard", False), ("105", 1, 6, 2, "Standard", False), ("106", 1, 7, 2, "Standard", True),
+    ("107", 1, 1, 1, "Standard", False), ("108", 1, 1, 1, "Standard", True), ("109", 1, 3, 2, "Standard", True),
+    ("110", 1, 1, 1, "Standard", False), ("111", 1, 4, 2, "Standard", False), ("112", 1, 13, 2, "Standard", False),
+    ("113", 1, 8, 2, "Standard", False), ("114", 1, 7, 2, "Standard", False), ("115", 1, 6, 2, "Standard", True),
+    ("116", 1, 9, 3, "Standard", True), ("117", 1, 10, 3, "Standard", False),
+    ("201", 2, 10, 3, "Premium", True), ("202", 2, 9, 3, "Premium", False), ("203", 2, 5, 2, "Standard", False),
+    ("204", 2, 6, 2, "Standard", False), ("205", 2, 7, 2, "Standard", True), ("206", 2, 1, 1, "Standard", False),
+    ("207", 2, 11, 3, "Premium", False), ("208", 2, 12, 2, "Standard", False), ("209", 2, 4, 2, "Standard", False),
+    ("210", 2, 13, 2, "Standard", False), ("211", 2, 8, 2, "Standard", False), ("212", 2, 7, 2, "Standard", False),
+    ("213", 2, 6, 2, "Standard", True), ("214", 2, 9, 3, "Premium", True), ("215", 2, 10, 3, "Premium", False),
+]
+# Standard number of bedroom slots per apartment. Slots beyond the apartment's real bed
+# count are created as N/A rooms so they can be activated / removed / re-marked later.
+ILA_STANDARD_BEDROOMS = 3
+
+# Rooms present in each type's plan (drawings A2800-A2812). Bedrooms are handled separately.
+ILA_TYPE_ROOMS = {
+    1: {"ensuite": False, "study": True, "store": True, "linen": True},
+    2: {"ensuite": False, "study": False, "store": True, "linen": True},
+    3: {"ensuite": False, "study": False, "store": False, "linen": True},
+    4: {"ensuite": True, "study": True, "store": True, "linen": True},
+    5: {"ensuite": True, "study": False, "store": False, "linen": True},
+    6: {"ensuite": True, "study": True, "store": False, "linen": True},
+    7: {"ensuite": True, "study": True, "store": True, "linen": True},
+    8: {"ensuite": True, "study": False, "store": False, "linen": True},
+    9: {"ensuite": True, "study": False, "store": True, "linen": True},
+    10: {"ensuite": True, "study": True, "store": False, "linen": True},
+    11: {"ensuite": True, "study": False, "store": True, "linen": True},
+    12: {"ensuite": True, "study": True, "store": False, "linen": True},
+    13: {"ensuite": False, "study": True, "store": True, "linen": False},
+}
 
 
 def now_iso() -> str:
@@ -176,12 +224,35 @@ async def seed_all(db, hash_password: Callable[[str], str]) -> None:
             locations.append({"id": rid, "project_id": project_id, "parent_id": fnode, "name": rname, "type": "Room", "order": i})
             room_nodes.append((rid, floor, rname, kws, wet))
 
-    ila_bnode = building_node("ILA")
-    apt_nodes = []  # (loc_id, n)
-    for n in range(1, 14):
+    # ILA: Level -> Apartment (real registry from drawings) -> standard rooms.
+    # Every apartment gets 3 bedroom slots; slots beyond the real bed count are
+    # marked status "na" so they can be activated / removed / edited later.
+    apts = []       # (loc_id, apt_number, apt_type, bed_count, level_idx)
+    apt_rooms = {}  # loc_id -> list of (room_loc_id, name, is_active)
+    for (num, lvl_idx, typ, beds, finish, mirrored) in ILA_APARTMENTS:
+        fnode = floor_node("ILA", ILA_LEVELS[lvl_idx])
         aid = str(uuid.uuid4())
-        locations.append({"id": aid, "project_id": project_id, "parent_id": ila_bnode, "name": f"Apartment Type {n}", "type": "Unit", "order": n})
-        apt_nodes.append((aid, n))
+        order = int(re.sub(r"\D", "", num) or 99)
+        locations.append({"id": aid, "project_id": project_id, "parent_id": fnode,
+                          "name": f"Apartment {num} · Type {typ}", "type": "Unit", "order": order,
+                          "apt_number": num, "apt_type": typ, "bed_count": beds, "finish": finish, "mirrored": mirrored})
+        apts.append((aid, num, typ, beds, lvl_idx))
+        rooms = ILA_TYPE_ROOMS[typ]
+        room_defs = [(f"Bedroom {b}", "active" if b <= beds else "na") for b in range(1, ILA_STANDARD_BEDROOMS + 1)]
+        if rooms["ensuite"]:
+            room_defs.append(("Ensuite", "active"))
+        room_defs += [("Bathroom", "active"), ("Living / Kitchen / Dining", "active"), ("Laundry", "active")]
+        if rooms["study"]:
+            room_defs.append(("Study", "active"))
+        if rooms["store"]:
+            room_defs.append(("Store", "active"))
+        if rooms["linen"]:
+            room_defs.append(("Linen", "active"))
+        apt_rooms[aid] = []
+        for i, (rname, rstatus) in enumerate(room_defs):
+            rid = str(uuid.uuid4())
+            locations.append({"id": rid, "project_id": project_id, "parent_id": aid, "name": rname, "type": "Room", "order": i, "status": rstatus})
+            apt_rooms[aid].append((rid, rname, rstatus == "active"))
 
     racf_bnode = building_node("RACF")
     fixtures_zone = str(uuid.uuid4())
@@ -234,12 +305,23 @@ async def seed_all(db, hash_password: Callable[[str], str]) -> None:
             sn = match_docs("Sanitary", "RACF", kws) or match_docs("Sanitary", "RACF", ["Ensuite", "Amenities", "Bathroom"]) or match_docs("Sanitary", "RACF", None)
             make_visi("Sanitary", rid, sn)
 
-    # ILA per-apartment Skirting + Sanitary
-    for (aid, n) in apt_nodes:
-        kws = [f"Apartment Type {n} ", f"Type {n} Plan", f"Type {n}\u2011"]
-        apt_docs = match_docs("Skirting", "ILA", kws)
-        make_visi("Skirting", aid, apt_docs or match_docs("Skirting", "ILA", ["Apartment"]))
-        make_visi("Sanitary", aid, match_docs("Sanitary", "ILA", None))
+    # ILA per-apartment: Skirting + Sanitary on the apartment, a Door Visi per bedroom
+    # (each bedroom door gets its own page) and per ensuite, plus a Robe Jamb Visi per bedroom.
+    ila_door_schedules = [d["id"] for d in documents if d["discipline"] == "Door" and (d.get("drawing_no") or "").startswith("A29")]
+    for (aid, num, typ, beds, lvl_idx) in apts:
+        type_plan = match_docs("Skirting", "ILA", [f"Apartment Type {typ} Plan"])
+        floor_name = ILA_LEVELS[lvl_idx]
+        ga_docs = [d["id"] for d in documents if d["discipline"] in ("Skirting", "Sanitary") and d["building"] == "ILA" and d.get("floor") == floor_name]
+        make_visi("Skirting", aid, type_plan + ga_docs or match_docs("Skirting", "ILA", ["Apartment"]))
+        make_visi("Sanitary", aid, type_plan + ga_docs or match_docs("Sanitary", "ILA", None))
+        for (rid, rname, active) in apt_rooms[aid]:
+            if not active:
+                continue
+            if rname.startswith("Bedroom"):
+                make_visi("Door", rid, type_plan + ila_door_schedules)
+                make_visi("Robe Jamb", rid, type_plan)
+            elif rname == "Ensuite":
+                make_visi("Door", rid, type_plan + ila_door_schedules)
 
     # Doors at each building floor that has door drawings
     door_floor_docs = {}

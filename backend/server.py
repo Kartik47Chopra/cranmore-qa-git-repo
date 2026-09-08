@@ -353,9 +353,45 @@ async def create_location(project_id: str, body: dict, user: dict = Depends(get_
         "id": str(uuid.uuid4()), "project_id": project_id,
         "parent_id": body.get("parent_id"), "name": body["name"],
         "type": body.get("type", "Room"), "order": body.get("order", 0),
+        "status": body.get("status", "active"),
     }
     await db.locations.insert_one(dict(loc))
     return loc
+
+
+@api_router.patch("/locations/{location_id}")
+async def update_location(location_id: str, body: dict, user: dict = Depends(get_current_user)):
+    allowed = {"name", "status", "order", "type"}
+    updates = {k: body[k] for k in allowed if k in body}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    res = await db.locations.update_one({"id": location_id}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Location not found")
+    return clean(await db.locations.find_one({"id": location_id}))
+
+
+@api_router.delete("/locations/{location_id}")
+async def delete_location(location_id: str, user: dict = Depends(get_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    loc = await db.locations.find_one({"id": location_id})
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found")
+    # collect the whole subtree
+    children = {}
+    async for l in db.locations.find({"project_id": loc["project_id"]}, {"id": 1, "parent_id": 1}):
+        children.setdefault(l.get("parent_id"), []).append(l["id"])
+    ids = []
+    stack = [location_id]
+    while stack:
+        cur = stack.pop()
+        ids.append(cur)
+        stack.extend(children.get(cur, []))
+    await db.visis.delete_many({"location_id": {"$in": ids}})
+    await db.pins.delete_many({"location_id": {"$in": ids}})
+    await db.locations.delete_many({"id": {"$in": ids}})
+    return {"ok": True, "deleted": len(ids)}
 
 
 @api_router.get("/templates")
@@ -884,6 +920,7 @@ async def multi_tracker(project_id: str, user: dict = Depends(get_current_user))
                 overall_total += tt
         rows.append({
             "location_id": l["id"], "parent_id": l.get("parent_id"), "name": l["name"], "type": l.get("type"),
+            "status": l.get("status", "active"),
             "overall": {"done": overall_done, "total": overall_total}, "cells": cells,
         })
 

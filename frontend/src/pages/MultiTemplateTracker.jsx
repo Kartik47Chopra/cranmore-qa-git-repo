@@ -143,7 +143,8 @@ export default function MultiTemplateTracker() {
                           {expanded[r.location_id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                         </button>
                       ) : <span className="w-[14px]" />}
-                      <span className={`truncate ${r.depth === 0 ? "font-semibold text-slate-800" : "text-slate-600"}`}>{r.name}</span>
+                      <span className={`truncate ${r.depth === 0 ? "font-semibold text-slate-800" : "text-slate-600"} ${r.status === "na" ? "text-slate-400 line-through decoration-slate-300" : ""}`}>{r.name}</span>
+                      {r.status === "na" && <span className="shrink-0 text-[9px] font-bold text-slate-500 bg-slate-100 rounded px-1 py-px border border-slate-200">N/A</span>}
                     </div>
                   </td>
                   <td className="sticky left-[240px] z-20 bg-white group-hover:bg-emerald-50/40 border-b border-r border-slate-200 px-2 py-1">

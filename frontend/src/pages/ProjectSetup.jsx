@@ -3,11 +3,12 @@ import { api } from "@/lib/api";
 import { useProject } from "@/context/ProjectContext";
 import { useAuth } from "@/context/AuthContext";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import LocationManager from "@/components/LocationManager";
 import { Building, Users, FileStack, MapPin } from "lucide-react";
 
 export default function ProjectSetup() {
   const { projectId, project } = useProject();
-  const { companies } = useAuth();
+  const { companies, user } = useAuth();
   const [templates, setTemplates] = useState([]);
   const [locations, setLocations] = useState([]);
 
@@ -71,15 +72,12 @@ export default function ProjectSetup() {
           </TabsContent>
 
           <TabsContent value="locations" className="flex-1 overflow-y-auto px-6 py-4 mt-0">
-            <div className="text-sm text-slate-500 mb-2">{locations.length} locations in tree</div>
-            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-2 max-w-4xl">
-              {locations.map((l) => (
-                <div key={l.id} className="bg-white border rounded px-3 py-2 text-sm flex items-center justify-between">
-                  <span>{l.name}</span>
-                  <span className="text-[11px] text-slate-400">{l.type}</span>
-                </div>
-              ))}
-            </div>
+            <LocationManager
+              projectId={projectId}
+              locations={locations}
+              isAdmin={user?.role === "admin"}
+              onChange={() => api.get(`/projects/${projectId}/locations`).then(({ data }) => setLocations(data))}
+            />
           </TabsContent>
         </Tabs>
       </div>

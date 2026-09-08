@@ -84,8 +84,11 @@ export function LocationTree({ locations }) {
             ) : (
               <span className="w-[14px] shrink-0" />
             )}
-            <Icon size={14} className="shrink-0 opacity-70" />
-            <span className="truncate">{node.name}</span>
+            <Icon size={14} className={`shrink-0 ${node.status === "na" ? "opacity-30" : "opacity-70"}`} />
+            <span className={`truncate ${node.status === "na" ? "text-slate-500 line-through decoration-slate-600" : ""}`}>{node.name}</span>
+            {node.status === "na" && (
+              <span className="ml-auto shrink-0 text-[9px] font-bold text-slate-500 bg-slate-700/60 rounded px-1 py-px">N/A</span>
+            )}
           </div>
         );
       })}
