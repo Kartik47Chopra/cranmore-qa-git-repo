@@ -26,3 +26,9 @@ docker compose -f docker-compose.base44.yml up -d
 ## Test credentials
 - Admin: `factory@maxxdoors.com.au` / `Cranmore2026!`
 - Trade (plumbing): `plumbing@maxxdoors.com.au` / `Cranmore2026!`
+
+## Documents/sheets (added 2026-09-08)
+- `GET /documents/{id}/file` serves INLINE (no Content-Disposition) so iframes render PDFs; `?download=1` switches to attachment for real downloads. Download links must use `${docUrl(id)}?download=1`.
+- `GET /documents/{id}/page?n=N` renders PDF page N as PNG (fitz, cached in backend/data/thumbs). `GET /documents/{id}/page_count` returns `{"pages": n}`.
+- DocumentViewer uses the page-image stack on mobile (<768px) because iOS/Android can't render PDF iframes; desktop uses the iframe.
+- `SheetContent`/`DialogContent` accept `showClose={false}` to hide the built-in X — modals that render their own close button MUST pass it (this was the "two X buttons" bug).

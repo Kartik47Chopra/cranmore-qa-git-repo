@@ -123,8 +123,9 @@ export default function LocationDetail() {
 
           <TabsContent value="visis" className="flex-1 overflow-hidden flex flex-col mt-0">
             <div className="flex flex-wrap items-center gap-2 px-4 md:px-6 py-3 border-b">
+              <div className="flex gap-2 overflow-x-auto no-scrollbar w-full md:w-auto md:overflow-visible flex-1 min-w-0">
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-40 h-9" data-testid="filter-status"><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectTrigger className="w-32 md:w-40 h-10 md:h-9 shrink-0" data-testid="filter-status"><SelectValue placeholder="Status" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All statuses</SelectItem>
                   <SelectItem value="open">Open</SelectItem>
@@ -136,7 +137,7 @@ export default function LocationDetail() {
                 </SelectContent>
               </Select>
               <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-36 h-9" data-testid="filter-type"><SelectValue placeholder="Type" /></SelectTrigger>
+                <SelectTrigger className="w-28 md:w-36 h-10 md:h-9 shrink-0" data-testid="filter-type"><SelectValue placeholder="Type" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All types</SelectItem>
                   <SelectItem value="Inspection">Inspection</SelectItem>
@@ -145,19 +146,46 @@ export default function LocationDetail() {
                 </SelectContent>
               </Select>
               <Select value={sortKey} onValueChange={setSortKey}>
-                <SelectTrigger className="w-40 h-9" data-testid="filter-sort"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-36 md:w-40 h-10 md:h-9 shrink-0" data-testid="filter-sort"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="last_updated">Sort: Last updated</SelectItem>
                   <SelectItem value="days_open">Sort: Days open</SelectItem>
                   <SelectItem value="code">Sort: Code</SelectItem>
                 </SelectContent>
               </Select>
-              <div className="ml-auto flex items-center gap-3">
+              </div>
+              <div className="flex items-center gap-3 w-full md:w-auto justify-between">
                 <span className="text-sm text-slate-500">All ({filtered.length})</span>
-                <Button size="sm" onClick={() => setShowCreate(true)} data-testid="new-visi-btn" className="bg-emerald-600 hover:bg-emerald-700 text-white"><Plus size={15} className="mr-1" /> New Visi</Button>
+                <Button size="sm" onClick={() => setShowCreate(true)} data-testid="new-visi-btn" className="h-10 md:h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white"><Plus size={15} className="mr-1" /> New Visi</Button>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto">
+              {/* Mobile: readable cards */}
+              <div className="md:hidden divide-y divide-slate-100">
+                {filtered.map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => setOpenVisi(v.id)}
+                    className="w-full text-left px-4 py-3.5 bg-white flex items-start gap-3 active:bg-slate-50"
+                    data-testid={`visi-row-${v.id}`}
+                  >
+                    <div className="pt-0.5"><StatusBadge status={v.status} done={v.progress_done} total={v.progress_total} /></div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[15px] font-semibold text-slate-800 leading-snug">{v.template_name}</div>
+                      <div className="text-[13px] text-slate-500 mt-0.5">
+                        <span className="font-mono">{v.code}</span> · {v.visi_type}
+                      </div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        {buildPath(locations, v.location_id).slice(-2).join(" / ")} · Updated {new Date(v.last_updated).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-xs text-slate-400 pt-0.5">{v.days_open}d open</div>
+                  </button>
+                ))}
+                {filtered.length === 0 && <div className="text-center text-slate-400 py-8">No Visis for this location.</div>}
+              </div>
+              {/* Desktop: table */}
+              <div className="hidden md:block">
               <Table>
                 <TableHeader className="sticky top-0 bg-slate-50 z-10">
                   <TableRow>
@@ -183,6 +211,7 @@ export default function LocationDetail() {
                   {filtered.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-slate-400 py-8">No Visis for this location.</TableCell></TableRow>}
                 </TableBody>
               </Table>
+              </div>
             </div>
           </TabsContent>
 
@@ -225,7 +254,7 @@ export default function LocationDetail() {
                   </div>
                   {d.revision && <span className="text-[10px] font-mono bg-slate-100 rounded px-1.5 py-0.5 text-slate-500 shrink-0">Rev {d.revision}</span>}
                   <Button size="sm" variant="ghost" className="h-7" onClick={() => setActiveDoc(d)}><Eye size={14} className="mr-1" /> View</Button>
-                  <a href={docUrl(d.id)} download={d.filename}><Button size="icon" variant="ghost" className="h-7 w-7"><Download size={14} /></Button></a>
+                  <a href={`${docUrl(d.id)}?download=1`} download={d.filename}><Button size="icon" variant="ghost" className="h-9 w-9 md:h-7 md:w-7"><Download size={15} /></Button></a>
                 </div>
               ))}
               {docs.length === 0 && <div className="text-slate-400">No documents linked to this location.</div>}

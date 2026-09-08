@@ -44,8 +44,8 @@ export function thumbUrl(id) {
   return `${API}/documents/${id}/thumb`;
 }
 
-export function pageUrl(id) {
-  return `${API}/documents/${id}/page`;
+export function pageUrl(id, n = 0) {
+  return `${API}/documents/${id}/page?n=${n}`;
 }
 
 export function formatApiErrorDetail(detail) {

@@ -738,7 +738,7 @@ async def get_documents(project_id: Optional[str] = None, location_id: Optional[
 
 
 @api_router.get("/documents/{doc_id}/file")
-async def get_document_file(doc_id: str, request: Request, auth: str = Query(None)):
+async def get_document_file(doc_id: str, request: Request, download: bool = Query(False), auth: str = Query(None)):
     verify_token(request, auth)
     d = await db.documents.find_one({"id": doc_id})
     if not d:
@@ -746,7 +746,11 @@ async def get_document_file(doc_id: str, request: Request, auth: str = Query(Non
     fp = DATA_DIR / d["rel_path"]
     if not fp.exists():
         raise HTTPException(status_code=404, detail="File missing on disk")
-    return FileResponse(str(fp), media_type=d.get("content_type", "application/pdf"), filename=d["filename"])
+    # Serve inline by default so browsers render the file in the viewer/iframe.
+    # `?download=1` switches to an attachment so "Download" actually downloads.
+    if download:
+        return FileResponse(str(fp), media_type=d.get("content_type", "application/pdf"), filename=d["filename"])
+    return FileResponse(str(fp), media_type=d.get("content_type", "application/pdf"))
 
 
 @api_router.get("/documents/{doc_id}/thumb")
@@ -1105,7 +1109,7 @@ async def report_excel(project_id: str, request: Request, auth: str = Query(None
 
 # ------------------------------------------------------------------ Floor-plan pins
 @api_router.get("/documents/{doc_id}/page")
-async def document_page(doc_id: str, request: Request, auth: str = Query(None)):
+async def document_page(doc_id: str, request: Request, n: int = Query(0), auth: str = Query(None)):
     verify_token(request, auth)
     d = await db.documents.find_one({"id": doc_id})
     if not d:
@@ -1115,19 +1119,50 @@ async def document_page(doc_id: str, request: Request, auth: str = Query(None)):
         raise HTTPException(status_code=404, detail="File missing")
     if (d.get("content_type") or "").startswith("image"):
         return FileResponse(str(src), media_type=d["content_type"])
-    out = THUMB_DIR / f"{doc_id}_page.png"
+    out = THUMB_DIR / (f"{doc_id}_page.png" if n <= 0 else f"{doc_id}_p{n}.png")
     if not out.exists():
         try:
             import fitz
             doc = fitz.open(str(src))
-            page = doc.load_page(0)
+            if n < 0 or n >= doc.page_count:
+                doc.close()
+                raise HTTPException(status_code=404, detail="Page out of range")
+            page = doc.load_page(n)
             zoom = min(3.0, max(0.5, 1600.0 / max(1.0, page.rect.width)))
             page.get_pixmap(matrix=fitz.Matrix(zoom, zoom)).save(str(out))
             doc.close()
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"page render failed {doc_id}: {e}")
             raise HTTPException(status_code=422, detail="Page render failed")
     return FileResponse(str(out), media_type="image/png")
+
+
+@api_router.get("/documents/{doc_id}/page_count")
+async def document_page_count(doc_id: str, request: Request, auth: str = Query(None)):
+    verify_token(request, auth)
+    d = await db.documents.find_one({"id": doc_id})
+    if not d:
+        raise HTTPException(status_code=404, detail="Document not found")
+    src = DATA_DIR / d["rel_path"]
+    if not src.exists():
+        raise HTTPException(status_code=404, detail="File missing")
+    if (d.get("content_type") or "").startswith("image"):
+        return {"pages": 1}
+    cache = THUMB_DIR / f"{doc_id}_count.txt"
+    if cache.exists():
+        return {"pages": int(cache.read_text() or 1)}
+    try:
+        import fitz
+        doc = fitz.open(str(src))
+        n = doc.page_count
+        doc.close()
+        cache.write_text(str(n))
+        return {"pages": n}
+    except Exception as e:
+        logger.error(f"page count failed {doc_id}: {e}")
+        raise HTTPException(status_code=422, detail="Page count failed")
 
 
 @api_router.get("/pins")

@@ -55,8 +55,8 @@ export default function Documents() {
         <p className="text-sm text-muted-foreground">{project?.name} · {docs.length} drawings, schedules &amp; quotes</p>
       </header>
 
-      <div className="flex items-center gap-2 px-6 py-3 border-b bg-white">
-        <div className="relative w-72">
+      <div className="flex flex-wrap items-center gap-2 px-4 md:px-6 py-3 border-b bg-white">
+        <div className="relative w-full md:w-72">
           <Search size={15} className="absolute left-2.5 top-2.5 text-slate-400" />
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search drawings, numbers, rooms…" className="pl-8 h-9" data-testid="docs-search" />
         </div>
@@ -66,7 +66,7 @@ export default function Documents() {
             <Chip key={d} label={d} active={disc === d} onClick={() => setDisc(d)} color={DISC_COLORS[d]} count={docs.filter((x) => x.discipline === d).length} testid={`docs-chip-${d}`} />
           ))}
         </div>
-        <div className="ml-auto text-sm text-slate-500">{filtered.length} shown</div>
+        <div className="ml-auto hidden sm:block text-sm text-slate-500">{filtered.length} shown</div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-5">
@@ -103,8 +103,8 @@ export default function Documents() {
                                 </div>
                               </div>
                               {d.revision && <span className="text-[10px] font-mono bg-slate-100 rounded px-1.5 py-0.5 text-slate-500 shrink-0">Rev {d.revision}</span>}
-                              <Button size="sm" variant="ghost" className="h-7 opacity-0 group-hover:opacity-100" onClick={() => setActive(d)} data-testid={`doc-view-${d.id}`}><Eye size={14} className="mr-1" /> View</Button>
-                              <a href={docUrl(d.id)} download={d.filename}><Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 group-hover:opacity-100"><Download size={14} /></Button></a>
+                              <Button size="sm" variant="ghost" className="h-9 md:h-7 md:opacity-0 md:group-hover:opacity-100" onClick={() => setActive(d)} data-testid={`doc-view-${d.id}`}><Eye size={15} className="mr-1" /> View</Button>
+                              <a href={`${docUrl(d.id)}?download=1`} download={d.filename}><Button size="icon" variant="ghost" className="h-9 w-9 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100"><Download size={15} /></Button></a>
                             </div>
                           ))}
                         </div>
