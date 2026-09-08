@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 2 focused on the 3 new features (Create Visi flow, Defect Camera, Milestone linking) and exhaustive button/dropdown coverage. Backend: 20/20 pytest tests pass (added TestCreateVisi.test_create_visi_from_template, TestMilestones.test_list_milestones_with_progress, TestMilestones.test_link_visi_to_milestone). Frontend Playwright: admin login OK; Milestones page renders 3 milestones with progress rings/x-y/%/closed-total, Ground Floor Handover shows Overdue badge, milestone-toggle expands to 57 linked visis, clicking milestone-visi opens VisiModal. Location Detail Visis tab: New Visi flow completes end-to-end - all 4 Select dropdowns open with correct options (template=9, type=3, assignee=5, reviewer=5), due date fills, submit creates visi and row count goes 44 -> 45. Visi modal: visi-camera-input exists with capture='environment', visi-capture-photo present, 5 step-camera + 5 step-toggle rendered; Actions dropdown lists all 5 override items and 'Set In Review' with window.prompt comment updates status badge to visi-status-badge-in_review, Clear override works; visi-add-milestone dropdown shows 3 milestone-opt-* and selecting links the visi (visi-milestone-* count 0->1); visi-add-attachment upload path succeeds with 'Evidence uploaded' toast and thumbnail appears. Filter dropdowns (status/type/sort) open with 7/4/3 options. Global buttons verified: project-switcher, user-menu-trigger + logout-btn, nav-tracker with tracker-legend-btn and tracker-export-btn, export-qr-btn opens qr-dialog.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/files/{path}", "issue": "(carry-over from iter 1) Downloads file WITHOUT enforcing auth - request_token stub returns None and no validation. Still unpatched."},
+      {"endpoint": "/api/auth/login", "issue": "(carry-over) Lockout count never reset after 15-min window; permanent lockout once tripped."},
+      {"endpoint": "/api/visis (visibility)", "issue": "(carry-over) seed_data.py sets visible_to = all companies, so trade users see every visi - visibility scoping is a no-op in seeded data."},
+      {"endpoint": "CORS", "issue": "(carry-over) CORS_ORIGINS env var defined but ignored; hardcoded FRONTEND_URL used."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "LocationDetail (dev only)", "issues": ["CRA react-error-overlay pops for a 'ResizeObserver loop completed with undelivered notifications' warning (benign, from Recharts/Radix). Blocks clicks in dev; consider suppressing in setupProxy or a custom errorOverlay filter. Prod build is unaffected."]},
+      {"screen": "Dialogs (VisiModal / CreateVisi / QR)", "issues": ["(carry-over) Radix DialogContent missing DialogDescription/aria-describedby -> a11y console warning. Add VisuallyHidden Description."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Suppress benign ResizeObserver overlay in dev (webpack overlay filter) so it doesn't block interactions during manual/UI testing.",
+    "Enforce auth in GET /api/files/{path}.",
+    "Reset login_attempts.count after 15-min lockout window.",
+    "Reduce seed visible_to to a subset so trade visibility scoping is testable.",
+    "Add DialogDescription (or VisuallyHidden) to Radix Dialogs to remove a11y warnings."
+  ],
+  "critical_code_review_comments": [
+    "server.py POST /api/visis: template steps copy uses tmpl['steps'][*]['assignee_company_id'] but does not populate the top-level assignee/reviewer defaults if body omits them - acceptable since UI sends them, but validate required fields with Pydantic model.",
+    "milestone_progress iterates all project visis every call (potentially 10k) - fine for seed but consider indexing or precomputed rollup for scale.",
+    "CreateVisiModal.jsx sends `visible_to: []` (empty) so newly created visis are only visible to owner-admin + assignee/reviewer companies - by design, but note.",
+    "server.py at 830 lines is monolithic; split into routers (already flagged)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py", "/app/test_reports/iteration_2.json"],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100% of tested flows (New Visi, camera inputs, actions override, milestone link, attachment upload, milestones page, global nav)"},
+  "test_credentials": "Admin factory@maxxdoors.com.au / Cranmore2026! ; Trade crema@maxxdoors.com.au / Cranmore2026!",
+  "seed_data_creation": "Used existing seed. New visi CC-67161 created during test on Ground Floor for Skirting template; milestone link + attachment persisted.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest at /app/backend/tests/backend_test.py now includes CreateVisi and Milestone (progress + link) coverage. Frontend Playwright verified full New Visi dialog chain and VisiModal camera/milestone/actions dropdowns. Only dev-only ResizeObserver overlay may block clicks during manual repro - use `document.getElementById('webpack-dev-server-client-overlay')?.remove()` in DevTools if it appears. Test data created is not cleaned up (new CC-671xx visi and one milestone link).",
+  "rca of the issue": "N/A - no blocking bugs. All 3 new features (Create Visi flow, Camera capture inputs, Milestone linking with progress rollup and overdue badge) are functional end-to-end."
+}

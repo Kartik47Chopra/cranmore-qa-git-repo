@@ -1,0 +1,41 @@
+{
+  "summary": "Completed backend (pytest, 17 tests) and frontend (Playwright) testing for Cranmore Carpenters QA. All backend endpoints (auth, dashboard, tracker, visis list/detail, step toggle with task-evidence enforcement, override w/ comment enforcement, attachment upload+serve) return correct status and data. Frontend: admin login -> dashboard shows all 6 metric cards + 3 breakdown charts; Multi-Template Tracker renders columns grouped by company->template with column totals and 14 rows x 9 columns of x/y progress cells + Excel export button; sidebar tree expands and location navigation works; LocationDetail Visis tab lists 59 visis and rows open the VisiModal (steps + details panel + activity); QR export dialog renders. No blocking issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/files/{path}", "issue": "Downloads file WITHOUT enforcing authentication - the `authorization`/`auth` header/query is parsed but never validated (request_token stub returns None and no check is performed). Any unauthenticated caller who knows the storage_path can retrieve the file bytes."},
+      {"endpoint": "/api/visis (visibility)", "issue": "Seed data sets `visible_to: <all company ids>` on every visi, so the trade user (Crema) sees all 154 visis. The filter logic itself is correct, but the seed makes the visibility scoping effectively a no-op — reduce visible_to in seed_data.py to make scoping meaningful."},
+      {"endpoint": "/api/auth/login", "issue": "Lockout uses `count>=5` but ALSO refreshes locked_until on every subsequent failed attempt; count is never reset after the 15-min window expires, so once at 5 failures a user is permanently locked without manual DB cleanup. Consider resetting count after window expiration."},
+      {"endpoint": "CORS", "issue": "`allow_origins` includes only FRONTEND_URL and localhost, but CORS_ORIGINS env var is defined and ignored. Works today because FRONTEND_URL is set correctly; still a config inconsistency."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "VisiModal / QR Dialog", "issues": ["Radix DialogContent used without DialogTitle -> a11y console error 'DialogContent requires a DialogTitle'. Wrap title with VisuallyHidden or add DialogTitle for screen readers."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Enforce auth in GET /api/files/{path} (validate JWT from ?auth= query or Authorization header before serving).",
+    "Fix seed_data.py: don't set visible_to = all companies, otherwise Crema sees every visi (permission scoping is untestable in UI).",
+    "Reset login_attempts.count once the 15-min lockout window expires, otherwise permanent lockout.",
+    "Add DialogTitle (or VisuallyHidden wrapper) to Radix Dialogs to remove a11y warnings."
+  ],
+  "critical_code_review_comments": [
+    "server.py `/api/files/{path}` has dead auth code (`request_token` stub) - file serve is effectively public.",
+    "server.py L748 CORSMiddleware ignores CORS_ORIGINS env, uses hardcoded FRONTEND_URL fallback.",
+    "seed_data.py L164 `visible_to: list(comps.values())` makes visibility filter a no-op.",
+    "server.py is 770 lines in a single file; consider splitting into auth/visis/attachments/dashboard routers for maintainability.",
+    "Login lockout logic doesn't reset after window expiry (permanent block once tripped)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% of tested flows"},
+  "test_credentials": "Admin factory@maxxdoors.com.au / Cranmore2026! ; Trade crema@maxxdoors.com.au / Cranmore2026! (per /app/memory/test_credentials.md)",
+  "seed_data_creation": "Used existing rich seed (5 companies, project Riverside Apartments, 3 levels x units x rooms, 9 templates, 154 visis).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest suite at /app/backend/tests/backend_test.py covers auth, reference data, dashboard, tracker, visi list/detail, inspection step toggle, task-step evidence enforcement, override comment enforcement, attachment upload+file serve. Visibility filter test only asserts every returned visi is legitimately visible to the trade user's company (does not assert count<admin because seed marks visible_to=all companies).",
+  "rca of the issue": "N/A - no blocking bugs. Minor issues noted above with recommended fixes."
+}

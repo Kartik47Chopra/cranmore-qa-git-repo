@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 5 verifies the three new features: Progress Export/Report, User Management, and Site Photos on Plan. Backend: extended /app/backend/tests/backend_test.py with three new test classes (TestReports, TestUserManagement, TestPins). Full run = 52 passed / 2 skipped (milestones intentionally empty). Key coverage: (a) GET /api/reports/summary returns overall{total>=80} + per-building trades rows; GET /api/reports/detail returns >=80 items each with done_steps/outstanding_steps/photos/drawings; GET /api/reports/excel serves text/csv with correct header + >=81 rows via cookie auth and returns 401 without auth. (b) Admin-gating verified: GET /api/users no-auth => 401; trade token => 403; admin sees full list without _id or password_hash leak. POST /api/users creates a user (email/password/name/role/company) with password_hash, and the newly created user can log in via POST /api/auth/login. PATCH /api/users/{id} grants and revokes admin (role flips affect subsequent /api/users access for that user). DELETE /api/users/{id} removes the user (and 400 for self-delete). Duplicate email create => 400. (c) GET /api/documents/{id}/page renders PDF first page as PNG (>200 bytes) via cookie auth and 401 without. POST /api/pins with multipart photo saves photo_path (stored under {app}/pins/) and returns pin doc; GET /api/pins?location_id lists pins; pin without photo also works; DELETE /api/pins/{id} removes it. /api/pins requires auth. Frontend Playwright: admin login auto-lands on dashboard; nav-report + nav-users visible; Progress Report renders 82 report-item rows with excel + print PDF buttons; User Management lists seed users, add-user-btn opens create-user-modal, filled it, created a real user via UI (POST /api/users), granted-admin + revoked-admin clicks fired PATCHes, and delete-user removed the row. Site Photos on Plan: opened RACF Ground Floor -> Floor Plan tab; plan-select populated and plan-image rendered from GET /api/documents/{id}/page; clicking the plan opened pin-dialog, saving created a numbered pin marker (pin-<uuid>), clicking the marker opened pin-view, pin-delete removed it. nav-users is correctly HIDDEN for the plumbing trade user (admin-only rendering via Layout.jsx filter).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/users/{id}", "issue": "No validation of role value - any string can be set (e.g. 'foo'). Consider whitelist ('admin','pm','trade','viewer')."},
+      {"endpoint": "POST /api/users", "issue": "No password strength check (accepts 'x'). Fine for demo, worth flagging."},
+      {"endpoint": "/api/files/{path}", "issue": "(carry-over) attachment file route lacks auth enforcement wording matches pin photos too - currently JWT is verified via token/cookie/auth query, so it's actually enforced; earlier report was inaccurate."},
+      {"endpoint": "CORS_ORIGINS", "issue": "(carry-over) env var defined but hardcoded FRONTEND_URL is used"},
+      {"endpoint": "/api/auth/login", "issue": "(carry-over) brute-force lockout count not reset after 15-min window"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Create User modal / Pin dialog", "issues": ["Radix DialogContent warning: 'Missing Description or aria-describedby' - accessibility improvement, non-blocking."]},
+      {"screen": "User Management - New Account modal", "issues": ["Password field is type='text' not type='password' - passwords are visible while typing. Minor UX/security concern."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Change UserManagement password Input to type='password'.",
+    "Add aria-describedby / DialogDescription to Radix Dialogs (pin-dialog, create-user-modal, pin-view) to remove console warnings.",
+    "Optionally: validate role enum server-side in PATCH /api/users."
+  ],
+  "critical_code_review_comments": [
+    "server.py now 1144 lines - reports/pins/users/auth should be split into routers before it grows further.",
+    "POST /api/pins accepts arbitrary plan_doc_id without validating the doc belongs to the location's project - low impact but a soft check would prevent orphaned refs.",
+    "PATCH /api/users/{id} accepts role/company_id without enum validation.",
+    "seed_data still puts every company in visible_to for every visi (carry-over)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "success_rate": {"backend": "100% (52 passed / 2 skipped - milestones empty by design)", "frontend": "100% of tested flows (admin login, nav visibility, Progress Report with 82 items + Excel + Print buttons, User Management full CRUD + role toggle via UI, Site Photos on Plan drop/view/delete pin, trade user's nav-users hidden)"},
+  "test_credentials": "Admin factory@maxxdoors.com.au / Cranmore2026! ; Trade plumbing@maxxdoors.com.au / Cranmore2026!",
+  "seed_data_creation": "Tests create and clean up their own users (test_iter5_*@example.com) and pins - no residue.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 3 new features work end-to-end. New backend classes: TestReports (summary/detail/excel + no-auth 401), TestUserManagement (list-401/403, create+login+grant+revoke+delete cycle, duplicate email 400, self-delete 400), TestPins (page render, page 401, pins CRUD with photo upload, pin without photo, /pins auth). Playwright flow now correctly clicks plan-image via .click(position=...) after scroll_into_view - naive page.mouse.click with pre-scroll bounding box misses because clicking initially scrolls the image. Password input in New Account modal is type='text' - flag to main agent."
+}

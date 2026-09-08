@@ -1,0 +1,151 @@
+{
+  "app_name": "Cranmore Carpenters QA",
+  "archetype": "ARCHETYPE 2: THE PERFORMANCE PRO / HIGH-DENSITY B2B SAAS",
+  "app_type": "dashboard / hybrid_fullstack B2B SaaS (construction quality & safety tracker)",
+  "emotional_tone": "Tactical precision, structural authority, effortless high-density navigation, field-ready clarity",
+  "theme": "Dark / Light hybrid theme optimized for high contrast outdoors and dense desktop operations. Slate Dark Sidebar (#0F172A) with Clean High-Contrast Workspace (#F8FAFC) or full Dark Mode toggle.",
+  "typography": {
+    "heading_font": "Barlow Condensed, sans-serif (or Outfit / Cabinet Grotesk)",
+    "body_font": "Inter, system-ui, sans-serif",
+    "mono_font": "JetBrains Mono, monospace",
+    "weights": {
+      "heading": "font-bold tracking-tight uppercase",
+      "subheading": "font-semibold tracking-normal",
+      "body": "font-normal",
+      "metric": "font-mono font-bold"
+    },
+    "hierarchy": {
+      "h1": "text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100",
+      "h2": "text-xl sm:text-2xl font-semibold text-slate-800 dark:text-slate-200",
+      "h3": "text-lg font-semibold text-slate-800 dark:text-slate-200",
+      "card_title": "text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400",
+      "body": "text-sm text-slate-700 dark:text-slate-300",
+      "small": "text-xs text-slate-500 dark:text-slate-400",
+      "mono_data": "font-mono text-xs tracking-wide"
+    }
+  },
+  "colors": {
+    "brand": {
+      "primary": "#D97706",
+      "primary_hover": "#B45309",
+      "primary_light": "#FEF3C7",
+      "accent_amber": "#F59E0B",
+      "slate_dark": "#0F172A",
+      "slate_border": "#334155"
+    },
+    "status_badges": {
+      "closed_complete": {
+        "text": "#166534",
+        "bg": "#DCFCE7",
+        "border": "#86EFAC",
+        "dark_text": "#4ADE80",
+        "dark_bg": "rgba(22, 101, 52, 0.2)",
+        "label": "Closed / Complete (Green)"
+      },
+      "open": {
+        "text": "#374151",
+        "bg": "#F3F4F6",
+        "border": "#D1D5DB",
+        "dark_text": "#9CA3AF",
+        "dark_bg": "rgba(75, 85, 99, 0.2)",
+        "label": "Open (Grey)"
+      },
+      "in_review": {
+        "text": "#1D4ED8",
+        "bg": "#DBEAFE",
+        "border": "#93C5FD",
+        "dark_text": "#60A5FA",
+        "dark_bg": "rgba(30, 58, 138, 0.2)",
+        "label": "In Review (Blue)"
+      },
+      "dispute": {
+        "text": "#C2410C",
+        "bg": "#FFEDD5",
+        "border": "#FDBA74",
+        "dark_text": "#FB923C",
+        "dark_bg": "rgba(194, 65, 12, 0.2)",
+        "label": "Dispute (Orange)"
+      },
+      "cant_close_overdue": {
+        "text": "#B91C1C",
+        "bg": "#FEE2E2",
+        "border": "#FCA5A5",
+        "dark_text": "#F87171",
+        "dark_bg": "rgba(185, 28, 28, 0.2)",
+        "label": "Can't Close / Overdue (Red)"
+      }
+    },
+    "surfaces": {
+      "app_bg": "#F8FAFC",
+      "sidebar_bg": "#0F172A",
+      "card_bg": "#FFFFFF",
+      "table_header_bg": "#F1F5F9",
+      "table_row_alt": "#FAFAFA",
+      "border_subtle": "#E2E8F0"
+    }
+  },
+  "visual_enhancers": {
+    "borders": "1px solid #E2E8F0 (Light) or 1px solid #334155 (Dark/Sidebar)",
+    "shadows": "shadow-sm for default cards, shadow-md on slide-overs and modals, no fuzzy glassmorphism on dense data tables",
+    "cell_shading": "Percentage-based alpha fill background for matrix cells (e.g., bg-emerald-50 text-emerald-700 for 100%, bg-amber-50 for partial, bg-rose-50 for high risk)",
+    "status_bar_charts": "Segmented horizontal progress bars showing multi-colored breakdown of Visis (Green/Grey/Blue/Orange/Red)"
+  },
+  "layouts": {
+    "sidebar": "Persistent left sidebar (260px width) with company/project dropdown switcher, main navigation (Dashboard, Multi-Template Tracker, Location Tree, Visis, Companies, Setup), and interactive multi-tier location tree accordion.",
+    "top_bar": "Sticky top bar on list/matrix views with search input, company/trade filters, status multiselect, location depth filter, date range, and primary CTA actions (New Visi, Export CSV, QR Export).",
+    "matrix_tracker": "Spreadsheet-style Multi-Template Tracker matrix view. Fixed/frozen left column for Location hierarchy, top two-level header (Company -> Checklist Template), cells showing x/y completed count, percentage progress ring/pill, hover highlight across row and column.",
+    "slide_over": "Full-height right slide-over sheet for Visi detail with tabbed sections: Checklist items with checkboxes, requirements & evidence photo upload, attachments strip, detailed timeline/activity feed, and metadata side-panel.",
+    "attachment_modal": "Full-screen or large modal viewer with image canvas (zoom in/out, rotate 90 deg, pan), EXIF/GPS metadata display panel, embedded satellite/map thumbnail showing geotagged coordinates, and quick tags."
+  },
+  "components_mapping": {
+    "navigation": "Custom LeftSidebar with Collapsible LocationTree and CompanySwitcher",
+    "filter_bar": "TopFilterBar with Select, MultiSelect, SearchInput, DatePicker, FilterBadges",
+    "tracker": "MultiTemplateTracker Matrix Table with sticky headers, progress indicators, cell detail tooltips",
+    "visi_sheet": "Sheet component for Visi detail with ChecklistProgress, AttachmentStrip, ActivityFeed",
+    "attachment_modal": "Dialog component for EXIF metadata viewer with canvas zoom/rotate controls and Map view",
+    "status_badge": "VisiStatusBadge implementing strict 5-color QA status code",
+    "location_tabs": "Tabs component (Overview, Visis, Milestones, Attachments, Documents, QR Export)"
+  },
+  "image_urls": [
+    {
+      "category": "inspection_hero",
+      "description": "Engineers and inspectors on site reviewing blueprints and quality records",
+      "url": "https://images.unsplash.com/photo-1774600166834-175d06febcd4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTF8MHwxfHNlYXJjaHszfHxjb25zdHJ1Y3Rpb24lMjBzaXRlJTIwd29ya2VyJTIwaGVsbWV0JTIwZW5naW5lZXIlMjBpbnNwZWN0aW9ufGVufDB8fHx8MTc4ODc1NDcxOHww&ixlib=rb-4.1.0&q=85"
+    },
+    {
+      "category": "field_worker",
+      "description": "Construction engineer in hard hat reviewing field safety and QA compliance",
+      "url": "https://images.pexels.com/photos/18504013/pexels-photo-18504013.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+    },
+    {
+      "category": "blueprint_review",
+      "description": "Male and female engineers discussing blueprints at construction site",
+      "url": "https://images.pexels.com/photos/8961146/pexels-photo-8961146.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+    }
+  ],
+  "motion": {
+    "slide_over_entrance": "framer-motion easeOut 0.2s for side drawer",
+    "matrix_cell_hover": "Subtle scale-102 or background highlight transition 150ms",
+    "tree_accordion": "Smooth height expand/collapse 200ms ease-in-out",
+    "reduced_motion": "Respect prefers-reduced-motion for all interactive elements"
+  },
+  "accessibility_and_testing": {
+    "wcag_target": "AA compliance with high contrast text on all status badges (minimum 4.5:1 ratio)",
+    "data_testid_convention": "All interactive elements, buttons, menu links, status pills, and matrix cells MUST contain data-testid in kebab-case format (e.g. data-testid=\"visi-status-badge-closed\", data-testid=\"matrix-cell-building-a-level-1\", data-testid=\"company-switcher-trigger\")"
+  },
+  "instructions_to_main_agent": [
+    "Ensure strict color coding for status badges: Green (#DCFCE7/#166534) for Closed/Complete, Grey (#F3F4F6/#374151) for Open, Blue (#DBEAFE/#1D4ED8) for In Review, Orange (#FFEDD5/#C2410C) for Dispute, Red (#FEE2E2/#B91C1C) for Can't Close/Overdue.",
+    "Build a persistent left navigation bar with collapsible location tree (Building -> Level -> Room -> Sub-room).",
+    "Construct the Multi-Template Tracker as a high-density matrix with fixed frozen location column, top company->template headers, and clear x/y progress indicator cells.",
+    "Include Visi Detail slide-over sheet with checklists, evidence photo attachments, activity feeds, and assignee/reviewer controls.",
+    "Include Attachment Modal with image zoom/rotate controls, simulated EXIF/GPS metadata display, and embedded map preview.",
+    "Maintain high density, clean B2B SaaS interface without unnecessary bloated spacing on data tables.",
+    "Add testid attributes (data-testid) to all key controls, buttons, tables, filters, and metrics."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": {
+    "testing_attributes": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case format.",
+    "design_tone": "Clean, dense, data-heavy B2B SaaS UI like Procore / Visibuild / Fieldwire.",
+    "color_purity": "Never use un-tinted pure black or generic soft gradients for data tables.",
+    "micro_interactions": "Smooth 150ms transitions on hover states, table rows, and status badges."
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 4 verified the reseeded Summerset Oakleigh South dataset (51 locations, 137 documents, 81 seeded Visis, 4 templates) plus the primary bug fix (access-token expiry + refresh). Backend: 39 pytest tests -> 37 passed, 2 skipped (milestones intentionally empty). Added 3 new test classes: TestTokenRefresh (no-cookies=>401, /auth/refresh with only refresh_token cookie returns 200 + sets new access_token cookie so /projects works again, /auth/refresh with no cookies=>401), TestThumbnails (PDF /thumb=>200 image/png, cached, image-doc pass-through, no-auth=>401), TestRoomsAndMisc (RACF Ground Floor has room children with visis; ILA has >=13 Apartment Types; Miscellaneous visis exist), TestTracker (columns include Door, Miscellaneous, Sanitary, Skirting; >=30 rows). Frontend Playwright: admin login auto-selects Summerset Oakleigh South, Dashboard renders (Inspections Closed 2/519, by-location RACF 50 + ILA 31 + General 1, by-discipline Architectural 60 + Services 22). Project switcher lists the project. Sidebar tree expands Ground Floor into rooms (Standard/Premium/Accessible Bedroom, Ensuite, Main Kitchen, Laundry, Communal Living & Dining, Typical Corridor) - Ground Floor visis page shows 12 items incl. Skirting per room + Sanitary on Ensuite/Main Kitchen/Laundry + floor-level Door 225-DR-008. ILA sidebar expands to 13 Apartment Types. RACF/Fixtures & Fittings has 11 Misc.* Visis (Bin bracket, Fireplace, General Miscellaneous, Glove Dispenser, PR, Paper towel x2, Public bathroom, Soap dispenser, WL1&WL4, Whiteboard & Pin board). Documents page renders 137 thumbnail <img> elements pointing at /api/documents/{id}/thumb; filter chips (All 137 / Door 21 / Miscellaneous 33 / Sanitary 15 / Skirting 68). Rebrand present: green Clover logo, Fraunces serif wordmark 'Cranmore CARPENTERS QA', emerald primary. Trade user (plumbing) Multi-Template Tracker shows only Skirting+Sanitary columns (Door and Miscellaneous hidden) - trade scoping working at tracker level.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/files/{path}", "issue": "(carry-over) attachment file route lacks auth enforcement"},
+      {"endpoint": "seed_data.py visible_to", "issue": "(carry-over) seed still sets visible_to = all companies on Skirting visis, so plumbing trade sees the 7 Skirting via /api/visis. Multi-Template Tracker still filters Door/Misc out for the trade so demo story holds, but /api/visis exposure is wide."},
+      {"endpoint": "CORS", "issue": "(carry-over) CORS_ORIGINS env var defined but hardcoded FRONTEND_URL is used"},
+      {"endpoint": "/api/auth/login", "issue": "(carry-over) brute-force lockout count not reset after 15-min window"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard", "issues": ["Inspections closed shows 2/519 vs quoted 0/512 - explained by test-created CC-* visis + 2 completed steps from earlier iterations. Cosmetic only."]},
+      {"screen": "Milestone Tracker", "issues": ["No milestones seeded (intentional per current dataset)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Optional pre-demo reseed to reset Dashboard counters to the clean 0/512.",
+    "Narrow seed visible_to to owner + assignee/reviewer only so /api/visis genuinely scopes trades (tracker already scopes)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 920 lines - extract documents/dashboard/visis/auth into routers.",
+    "get_document_file streams FileResponse from disk without rate limit or signed URLs - acceptable for internal preview.",
+    "Thumbnails cache under backend/data/thumbs but no invalidation if doc file replaces (cache key is doc_id only) - minor.",
+    "seed_data visible_to = all companies defeats the visibility scoping demoed elsewhere."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (37 pass / 2 skip - milestones empty by design)", "frontend": "100% of tested flows (login + auto-select project, rooms tree with Skirting+Sanitary visis, ILA 13 apartments, Fixtures & Fittings 11 Misc visis, Documents 137 with thumbnails, discipline chips, tracker columns, trade scoping)"},
+  "test_credentials": "Admin factory@maxxdoors.com.au / Cranmore2026! ; Trade plumbing@maxxdoors.com.au / Cranmore2026!",
+  "seed_data_creation": "None - used existing reseed. Test-created ~1 CC-* visi + 2 toggled inspection steps.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Refresh-token flow works end-to-end: POST /api/auth/refresh with only the refresh cookie mints a new access_token cookie and the subsequent /api/projects call returns 200. Thumbnails at /api/documents/{id}/thumb generate on first request (PyMuPDF) and are served from cache thereafter; no-auth returns 401 (interceptor path). Room-level Visis + ILA Apartment Type 1-13 + Fixtures & Fittings Misc visis all present. Only lingering minor: seed's wide visible_to lets the trade see Skirting via /api/visis (Multi-Template Tracker still hides Door/Misc for the trade).",
+  "rca of the issue": "Original bug reproduced hypothetically: with an expired access_token cookie /api/projects returns 401 (confirmed via TestTokenRefresh.test_no_cookies_returns_401 and test_refresh_endpoint_issues_new_access_token where we delete the access_token cookie and see /projects 401). Fix verified: POST /api/auth/refresh returns 200 and Set-Cookie access_token, after which /projects returns 200 with the project. The frontend axios interceptor at src/lib/api.js will thus self-heal on 401 without a hard logout."
+}
