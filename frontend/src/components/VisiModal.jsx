@@ -7,9 +7,9 @@ import { AttachmentModal } from "@/components/AttachmentModal";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Check, Circle, Plus, X, Camera, Send, MoreHorizontal, MapPin, Upload, Loader2, Milestone, FileText, Eye } from "lucide-react";
+import { Check, Circle, Plus, X, Camera, Send, MoreHorizontal, MapPin, Upload, Loader2, Milestone, FileText, Eye, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useProject } from "@/context/ProjectContext";
 import { DocumentViewer } from "@/components/DocumentViewer";
@@ -42,22 +42,73 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
 
   const toggleStep = async (step) => {
     const next = step.status === "complete" ? "pending" : "complete";
+    const prevSteps = visi.steps.map((s) => ({ step_id: s.step_id, status: s.status }));
     try {
       const { data } = await api.patch(`/visis/${visi.id}/step`, { step_id: step.step_id, status: next });
       setVisi((v) => ({ ...v, ...data }));
       onChanged?.();
+      if (next === "complete") {
+        toast.success(`"${step.label}" completed`, {
+          action: {
+            label: "Undo",
+            onClick: async () => {
+              try {
+                for (const s of prevSteps) {
+                  if (s.status === "pending") await api.patch(`/visis/${visi.id}/step`, { step_id: s.step_id, status: "pending" });
+                }
+                load();
+                onChanged?.();
+              } catch { toast.error("Could not undo"); }
+            },
+          },
+        });
+      }
     } catch (e) {
       toast.error(e.response?.data?.detail || "Could not update step");
     }
   };
 
   const setOverride = async (status) => {
-    const comment = status ? window.prompt(`Comment required to set "${STATUS_META[status].label}":`) : "cleared";
-    if (status && !comment) return;
-    const { data } = await api.patch(`/visis/${visi.id}/status`, { override_status: status, comment });
+    const prev = visi.override_status;
+    const { data } = await api.patch(`/visis/${visi.id}/status`, { override_status: status });
     setVisi((v) => ({ ...v, ...data }));
     load();
     onChanged?.();
+    toast.success(status ? `Marked ${STATUS_META[status].label}` : "Status cleared", {
+      action: {
+        label: "Undo",
+        onClick: async () => {
+          try {
+            await api.patch(`/visis/${visi.id}/status`, { override_status: prev });
+            load();
+            onChanged?.();
+          } catch { toast.error("Could not undo"); }
+        },
+      },
+    });
+  };
+
+  const deleteVisi = async () => {
+    if (!window.confirm(`Delete Visi ${visi.code}? You can undo this right after.`)) return;
+    try {
+      await api.delete(`/visis/${visi.id}`);
+      onClose();
+      onChanged?.();
+      toast("Visi deleted", {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              await api.post(`/visis/${visi.id}/restore`);
+              toast.success("Visi restored");
+              onChanged?.();
+            } catch { toast.error("Could not restore"); }
+          },
+        },
+      });
+    } catch {
+      toast.error("Could not delete Visi");
+    }
   };
 
   const triggerUpload = (step, requirement) => {
@@ -124,6 +175,23 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
               <StatusBadge status={visi.status} done={visi.progress_done} total={visi.progress_total} />
               <span className="font-mono text-sm font-semibold text-slate-700">{visi.code}</span>
               <span className="text-sm text-slate-500 truncate">{visi.template_name}</span>
+              {visi.door_id && (
+                <span className="hidden sm:inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700" data-testid="visi-door-id">
+                  Door <span className="font-mono">{visi.door_id}</span>
+                </span>
+              )}
+              {visi.skirting_type && (
+                <span
+                  className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full"
+                  style={visi.skirting_type === "Indoor skirting"
+                    ? { backgroundColor: "#DCFCE7", color: "#166534" }
+                    : { backgroundColor: "#DBEAFE", color: "#1D4ED8" }}
+                  data-testid="visi-skirting-type"
+                >
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: visi.skirting_type === "Indoor skirting" ? "#16A34A" : "#2563EB" }} />
+                  {visi.skirting_type}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1">
               <DropdownMenu>
@@ -136,6 +204,10 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
                   <DropdownMenuItem onClick={() => setOverride("cant_close")}>Set Can't Close</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setOverride("na")}>Set N/A</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setOverride(null)}>Clear override</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={deleteVisi} data-testid="visi-delete">
+                    <Trash2 size={14} className="mr-2" /> Delete Visi
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button variant="ghost" size="icon" onClick={onClose} data-testid="visi-close"><X size={16} /></Button>

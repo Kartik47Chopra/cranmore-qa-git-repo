@@ -443,6 +443,7 @@ async def list_visis(
         q["template_id"] = template_id
     if assignee_company_id:
         q["assignee_company_id"] = assignee_company_id
+    q["is_deleted"] = {"$ne": True}
     raw = await db.visis.find(q).to_list(5000)
     is_admin = owner_admin(user)
     cid = user.get("company_id")
@@ -459,7 +460,7 @@ async def list_visis(
 
 @api_router.get("/visis/{visi_id}")
 async def get_visi(visi_id: str, user: dict = Depends(get_current_user)):
-    v = await db.visis.find_one({"id": visi_id})
+    v = await db.visis.find_one({"id": visi_id, "is_deleted": {"$ne": True}})
     if not v:
         raise HTTPException(status_code=404, detail="Visi not found")
     if not visible_to_company(v, user.get("company_id"), owner_admin(user)):
@@ -508,11 +509,12 @@ async def create_visi(body: dict, user: dict = Depends(get_current_user)):
 
 @api_router.patch("/visis/{visi_id}/step")
 async def toggle_step(visi_id: str, body: dict, user: dict = Depends(get_current_user)):
-    v = await db.visis.find_one({"id": visi_id})
+    v = await db.visis.find_one({"id": visi_id, "is_deleted": {"$ne": True}})
     if not v:
         raise HTTPException(status_code=404, detail="Visi not found")
     step_id = body["step_id"]
     new_status = body.get("status", "complete")
+    target_idx = next((i for i, s in enumerate(v["steps"]) if s["step_id"] == step_id), None)
     for s in v["steps"]:
         if s["step_id"] == step_id:
             if s["type"] == "task" and new_status == "complete":
@@ -520,6 +522,10 @@ async def toggle_step(visi_id: str, body: dict, user: dict = Depends(get_current
                 if missing:
                     raise HTTPException(status_code=400, detail="Attach evidence to all requirements before completing this task step")
             s["status"] = new_status
+    # Completing a step (e.g. QA sign-off) also completes every step before it
+    if new_status == "complete" and target_idx is not None:
+        for s in v["steps"][:target_idx]:
+            s["status"] = "complete"
     v["last_updated"] = now_iso()
     if all(s["status"] == "complete" for s in v["steps"]) and not v.get("override_status"):
         v["closed_at"] = v.get("closed_at") or now_iso()
@@ -534,13 +540,11 @@ async def toggle_step(visi_id: str, body: dict, user: dict = Depends(get_current
 
 @api_router.patch("/visis/{visi_id}/status")
 async def override_status(visi_id: str, body: dict, user: dict = Depends(get_current_user)):
-    v = await db.visis.find_one({"id": visi_id})
+    v = await db.visis.find_one({"id": visi_id, "is_deleted": {"$ne": True}})
     if not v:
         raise HTTPException(status_code=404, detail="Visi not found")
     status = body.get("override_status")  # cant_close | na | in_review | in_dispute | None
-    comment = body.get("comment", "")
-    if status and not comment:
-        raise HTTPException(status_code=400, detail="A comment is required to set this status")
+    comment = body.get("comment", "")  # optional — no longer required
     await db.visis.update_one({"id": visi_id}, {"$set": {"override_status": status, "last_updated": now_iso()}})
     await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": visi_id, "user": user["name"], "text": f"set status to {status or 'auto'}: {comment}", "type": "status", "created_at": now_iso()})
     v["override_status"] = status
@@ -552,6 +556,48 @@ async def add_comment(visi_id: str, body: dict, user: dict = Depends(get_current
     act = {"id": str(uuid.uuid4()), "visi_id": visi_id, "user": user["name"], "text": body["text"], "type": "comment", "created_at": now_iso()}
     await db.activity.insert_one(dict(act))
     return act
+
+
+@api_router.delete("/visis/{visi_id}")
+async def delete_visi(visi_id: str, user: dict = Depends(get_current_user)):
+    v = await db.visis.find_one({"id": visi_id, "is_deleted": {"$ne": True}})
+    if not v:
+        raise HTTPException(status_code=404, detail="Visi not found")
+    await db.visis.update_one({"id": visi_id}, {"$set": {"is_deleted": True, "last_updated": now_iso()}})
+    await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": visi_id, "user": user["name"], "text": f"deleted Visi {v.get('code')}", "type": "delete", "created_at": now_iso()})
+    return {"ok": True, "id": visi_id}
+
+
+@api_router.post("/visis/{visi_id}/restore")
+async def restore_visi(visi_id: str, user: dict = Depends(get_current_user)):
+    v = await db.visis.find_one({"id": visi_id})
+    if not v:
+        raise HTTPException(status_code=404, detail="Visi not found")
+    await db.visis.update_one({"id": visi_id}, {"$set": {"is_deleted": False, "last_updated": now_iso()}})
+    await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": visi_id, "user": user["name"], "text": f"restored Visi {v.get('code')}", "type": "restore", "created_at": now_iso()})
+    return {"ok": True, "id": visi_id}
+
+
+@api_router.post("/locations/{location_id}/set_na")
+async def location_set_na(location_id: str, body: dict, user: dict = Depends(get_current_user)):
+    """Mark every Visi at this location (and its descendants) as N/A, or clear the override with {"status": null}."""
+    status = body.get("status", "na")
+    all_locs = await db.locations.find({"project_id": (await db.locations.find_one({"id": location_id}) or {}).get("project_id", "")}).to_list(2000)
+    children = {}
+    for l in all_locs:
+        children.setdefault(l.get("parent_id"), []).append(l["id"])
+    ids = []
+    stack = [location_id]
+    while stack:
+        cur = stack.pop()
+        ids.append(cur)
+        stack.extend(children.get(cur, []))
+    res = await db.visis.update_many(
+        {"location_id": {"$in": ids}, "is_deleted": {"$ne": True}},
+        {"$set": {"override_status": status, "last_updated": now_iso()}},
+    )
+    await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": None, "user": user["name"], "text": f"set {res.modified_count} Visis at a location to {status or 'auto'}", "type": "status", "created_at": now_iso()})
+    return {"updated": res.modified_count}
 
 
 # ------------------------------------------------------------------ Attachments
@@ -586,7 +632,7 @@ async def upload_attachment(
     }
     await db.attachments.insert_one(dict(att))
     if requirement_id and step_id:
-        v = await db.visis.find_one({"id": visi_id})
+        v = await db.visis.find_one({"id": visi_id, "is_deleted": {"$ne": True}})
         if v:
             for s in v["steps"]:
                 if s["step_id"] == step_id:
@@ -648,7 +694,7 @@ async def milestone_progress(m: dict, project_id: str):
             stack.extend(children.get(cur, []))
         loc_ids = expanded
     visi_ids = set(m.get("visi_ids") or [])
-    visis = await db.visis.find({"project_id": project_id}).to_list(10000)
+    visis = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
     linked = [v for v in visis if v["id"] in visi_ids or v["location_id"] in loc_ids]
     done = total = closed = 0
     for v in linked:
@@ -719,7 +765,7 @@ async def get_documents(project_id: Optional[str] = None, location_id: Optional[
     if discipline:
         query["discipline"] = discipline
     if visi_id:
-        v = await db.visis.find_one({"id": visi_id})
+        v = await db.visis.find_one({"id": visi_id, "is_deleted": {"$ne": True}})
         query["id"] = {"$in": (v or {}).get("document_ids") or []}
     if location_id:
         pid = project_id
@@ -786,7 +832,7 @@ STATUS_ORDER = ["closed", "in_progress", "open", "in_review", "in_dispute", "can
 
 @api_router.get("/dashboard")
 async def dashboard(project_id: str, user: dict = Depends(get_current_user)):
-    raw = await db.visis.find({"project_id": project_id}).to_list(10000)
+    raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
     is_admin = owner_admin(user)
     cid = user.get("company_id")
     visis = [serialize_visi(v) for v in raw if visible_to_company(v, cid, is_admin)]
@@ -830,9 +876,49 @@ async def dashboard(project_id: str, user: dict = Depends(get_current_user)):
             rows.append({"name": name, "counts": counts, "total": sum(counts.values())})
         return sorted(rows, key=lambda r: -r["total"])
 
-    by_location = breakdown(lambda v: (top_location(v["location_id"]) or {}).get("name"))
+    loc_groups = {}
+    for v in visis:
+        top = top_location(v["location_id"]) or {}
+        g = loc_groups.setdefault(top.get("name") or "Unassigned", {"id": top.get("id"), "counts": {s: 0 for s in STATUS_ORDER}})
+        g["counts"][v["status"]] += 1
+    by_location = [{"name": k, "id": g["id"], "counts": g["counts"], "total": sum(g["counts"].values())}
+                  for k, g in loc_groups.items()]
+    by_location.sort(key=lambda r: -r["total"])
     by_stage = breakdown(lambda v: v.get("stage"))
     by_discipline = breakdown(lambda v: v.get("discipline"))
+    companies = {c["id"]: (c.get("name") or "Unassigned") for c in await db.companies.find().to_list(500)}
+    by_company = breakdown(lambda v: companies.get(v.get("assignee_company_id")))
+    top_templates = breakdown(lambda v: v.get("template_name"))[:20]
+
+    # Active users per company over the last 7 days (from the activity log)
+    week_ago = (now - timedelta(days=7)).isoformat()
+    recent_acts = await db.activity.find({"created_at": {"$gte": week_ago}}).to_list(20000)
+    users = {u["name"]: u.get("company_id") for u in await db.users.find().to_list(500)}
+    active_by_company = {}
+    seen = set()
+    for a in recent_acts:
+        u_name = a.get("user")
+        if not u_name or u_name in seen:
+            continue
+        seen.add(u_name)
+        cname = companies.get(users.get(u_name), "Unknown")
+        active_by_company[cname] = active_by_company.get(cname, 0) + 1
+    active_users = sorted(({"name": k, "count": v} for k, v in active_by_company.items()), key=lambda r: -r["count"])
+
+    # Project activity: cumulative Visis created vs closed, bucketed by month
+    months = {}
+    for v in visis:
+        try:
+            mk = v["created_at"][:7]
+            months.setdefault(mk, {"created": 0, "closed": 0})
+            months[mk]["created"] += 1
+            if v.get("closed_at"):
+                ck = v["closed_at"][:7]
+                months.setdefault(ck, {"created": 0, "closed": 0})
+                months[ck]["closed"] += 1
+        except Exception:
+            pass
+    activity_series = [{"month": k, **months[k]} for k in sorted(months)]
 
     return {
         "metrics": {
@@ -841,6 +927,8 @@ async def dashboard(project_id: str, user: dict = Depends(get_current_user)):
             "overdue": overdue, "holdpoints_open": holdpoints,
         },
         "by_location": by_location, "by_stage": by_stage, "by_discipline": by_discipline,
+        "by_company": by_company, "top_templates": top_templates,
+        "active_users": active_users, "activity_series": activity_series,
     }
 
 
@@ -848,7 +936,7 @@ async def dashboard(project_id: str, user: dict = Depends(get_current_user)):
 @api_router.get("/tracker/multi")
 async def multi_tracker(project_id: str, user: dict = Depends(get_current_user)):
     locs = [clean(l) for l in await db.locations.find({"project_id": project_id}).to_list(2000)]
-    raw = await db.visis.find({"project_id": project_id}).to_list(10000)
+    raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
     is_admin = owner_admin(user)
     cid = user.get("company_id")
     visis = [v for v in raw if visible_to_company(v, cid, is_admin)]
@@ -1025,7 +1113,7 @@ def _loc_helpers(locs):
 
 
 async def _report_visis(project_id, user):
-    raw = await db.visis.find({"project_id": project_id}).to_list(10000)
+    raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
     is_admin = owner_admin(user)
     cid = user.get("company_id")
     return raw, [serialize_visi(v) for v in raw if visible_to_company(v, cid, is_admin)]
@@ -1088,7 +1176,7 @@ async def report_detail(project_id: str, user: dict = Depends(get_current_user))
 @api_router.get("/reports/excel")
 async def report_excel(project_id: str, request: Request, auth: str = Query(None)):
     verify_token(request, auth)
-    raw = await db.visis.find({"project_id": project_id}).to_list(10000)
+    raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
     visis = [serialize_visi(v) for v in raw]
     locs = [clean(l) for l in await db.locations.find({"project_id": project_id}).to_list(2000)]
     path, top = _loc_helpers(locs)

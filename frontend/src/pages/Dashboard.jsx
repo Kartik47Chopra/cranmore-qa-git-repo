@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useProject } from "@/context/ProjectContext";
-import { SegmentedBar, Legend } from "@/components/Indicators";
+import { Legend } from "@/components/Indicators";
+import { StackedBarWidget, CountBarWidget } from "@/components/dashboard/StackedBarWidget";
+import { ActivityChart } from "@/components/dashboard/ActivityChart";
 import { CheckCircle2, AlertTriangle, Bug, Clock, ShieldAlert } from "lucide-react";
 
 const METRIC_DEFS = [
@@ -11,24 +13,6 @@ const METRIC_DEFS = [
   { key: "overdue", label: "Overdue", icon: Clock, color: "text-red-600", testid: "metric-overdue" },
   { key: "holdpoints_open", label: "Hold points open", icon: ShieldAlert, color: "text-blue-600", testid: "metric-holdpoints" },
 ];
-
-function Section({ title, rows }) {
-  return (
-    <div className="bg-white rounded-lg border border-slate-200 p-4">
-      <h3 className="font-display font-bold uppercase tracking-wide text-sm text-slate-700 mb-3">{title}</h3>
-      <div className="space-y-2.5">
-        {rows.map((r) => (
-          <div key={r.name} className="grid grid-cols-[160px_1fr_44px] items-center gap-3" data-testid={`chart-row-${r.name}`}>
-            <div className="text-xs text-slate-600 truncate text-right pr-1">{r.name}</div>
-            <SegmentedBar counts={r.counts} total={r.total} />
-            <div className="text-xs font-mono font-bold text-slate-500 text-right">{r.total}</div>
-          </div>
-        ))}
-        {rows.length === 0 && <div className="text-sm text-slate-400">No data</div>}
-      </div>
-    </div>
-  );
-}
 
 export default function Dashboard() {
   const { projectId, project } = useProject();
@@ -47,15 +31,15 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <header className="px-6 py-4 border-b border-slate-200 bg-white shrink-0">
+      <header className="px-4 md:px-6 py-4 border-b border-slate-200 bg-white shrink-0">
         <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-slate-900">Dashboard</h1>
         <p className="text-sm text-muted-foreground">{project?.name} · {project?.address}</p>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {METRIC_DEFS.map((d) => (
-            <div key={d.key} data-testid={d.testid} className="bg-white rounded-lg border border-slate-200 p-4">
+            <div key={d.key} data-testid={d.testid} className="bg-white rounded-lg border border-slate-200 p-4 hover:shadow-sm transition-shadow">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{d.label}</span>
                 <d.icon size={18} className={d.color} />
@@ -67,10 +51,26 @@ export default function Dashboard() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          <Section title="Visi status by location" rows={data?.by_location || []} />
-          <Section title="Visi status by stage" rows={data?.by_stage || []} />
-          <Section title="Visi status by discipline" rows={data?.by_discipline || []} />
+        <StackedBarWidget
+          title="Visi status by location"
+          subtitle="All time · Click a location to open its Visis"
+          rows={data?.by_location || []}
+          initialRows={10}
+        />
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <StackedBarWidget title="Visi status by stage" subtitle="All time · Visis broken down by status for each stage" rows={data?.by_stage || []} />
+          <StackedBarWidget title="Visi status by discipline" subtitle="All time · Visis broken down by status for each discipline" rows={data?.by_discipline || []} />
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <StackedBarWidget title="Visi status by company" subtitle="All time · Visis per assignee company" rows={data?.by_company || []} />
+          <StackedBarWidget title="Top 20 used Visi templates" subtitle="All time · The most used templates on your project" rows={data?.top_templates || []} />
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <CountBarWidget title="Active users by company" subtitle="Last 7 days · Unique active users per company" rows={data?.active_users || []} />
+          <ActivityChart series={data?.activity_series || []} />
         </div>
 
         <div className="bg-white rounded-lg border border-slate-200 p-4">

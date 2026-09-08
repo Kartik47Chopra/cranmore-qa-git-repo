@@ -15,8 +15,10 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { QrCode, MapPin, ChevronDown, Plus, FileText, Eye, Download } from "lucide-react";
+import { QrCode, MapPin, ChevronDown, Plus, FileText, Eye, Download, Ban } from "lucide-react";
 import { docUrl } from "@/lib/api";
+import { VisiQuickActions } from "@/components/VisiQuickActions";
+import { toast } from "sonner";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -68,6 +70,28 @@ export default function LocationDetail() {
   const loc = locations.find((l) => l.id === locationId);
   const path = buildPath(locations, locationId);
   const deepLink = `${window.location.origin}/location/${locationId}`;
+
+  const markNa = async () => {
+    if (!window.confirm(`Mark ALL Visis at "${loc?.name || "this location"}" and everything inside it as N/A? You can undo this.`)) return;
+    try {
+      const { data } = await api.post(`/locations/${locationId}/set_na`, { status: "na" });
+      load();
+      toast.success(`${data.updated} Visis marked N/A`, {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              await api.post(`/locations/${locationId}/set_na`, { status: null });
+              load();
+              toast.success("N/A cleared");
+            } catch { toast.error("Could not undo"); }
+          },
+        },
+      });
+    } catch {
+      toast.error("Could not mark location N/A");
+    }
+  };
   const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(deepLink)}`;
 
   const attachments = useMemo(() => visis.flatMap((v) => []), [visis]);
@@ -98,7 +122,18 @@ export default function LocationDetail() {
             <MapPin size={20} className="text-emerald-600" /> {loc?.name || "Location"}
           </h1>
         </div>
-        <Button variant="outline" onClick={() => setShowQr(true)} data-testid="export-qr-btn"><QrCode size={16} className="mr-2" /> Export QR Code</Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={markNa}
+            className="text-slate-600"
+            data-testid="mark-na-btn"
+            title="Mark every Visi at this location (and inside it) as not applicable"
+          >
+            <Ban size={16} className="mr-2" /> Mark N/A
+          </Button>
+          <Button variant="outline" onClick={() => setShowQr(true)} data-testid="export-qr-btn"><QrCode size={16} className="mr-2" /> Export QR Code</Button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -163,10 +198,10 @@ export default function LocationDetail() {
               {/* Mobile: readable cards */}
               <div className="md:hidden divide-y divide-slate-100">
                 {filtered.map((v) => (
-                  <button
+                  <div
                     key={v.id}
                     onClick={() => setOpenVisi(v.id)}
-                    className="w-full text-left px-4 py-3.5 bg-white flex items-start gap-3 active:bg-slate-50"
+                    className="w-full text-left px-4 py-3.5 bg-white flex items-start gap-3 active:bg-slate-50 cursor-pointer"
                     data-testid={`visi-row-${v.id}`}
                   >
                     <div className="pt-0.5"><StatusBadge status={v.status} done={v.progress_done} total={v.progress_total} /></div>
@@ -174,13 +209,19 @@ export default function LocationDetail() {
                       <div className="text-[15px] font-semibold text-slate-800 leading-snug">{v.template_name}</div>
                       <div className="text-[13px] text-slate-500 mt-0.5">
                         <span className="font-mono">{v.code}</span> · {v.visi_type}
+                        {v.door_id && <span className="ml-1.5 font-mono font-bold text-slate-700">· {v.door_id}</span>}
                       </div>
                       <div className="text-xs text-slate-400 mt-1">
                         {buildPath(locations, v.location_id).slice(-2).join(" / ")} · Updated {new Date(v.last_updated).toLocaleDateString()}
                       </div>
                     </div>
-                    <div className="shrink-0 text-xs text-slate-400 pt-0.5">{v.days_open}d open</div>
-                  </button>
+                    <div className="flex flex-col items-end shrink-0">
+                      <span className="text-xs text-slate-400">{v.days_open}d open</span>
+                      <div className="flex mt-1" onClick={(e) => e.stopPropagation()}>
+                        <VisiQuickActions visi={v} onChanged={load} />
+                      </div>
+                    </div>
+                  </div>
                 ))}
                 {filtered.length === 0 && <div className="text-center text-slate-400 py-8">No Visis for this location.</div>}
               </div>
@@ -195,6 +236,7 @@ export default function LocationDetail() {
                     <TableHead>Location</TableHead>
                     <TableHead>Days open</TableHead>
                     <TableHead>Last updated</TableHead>
+                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -202,13 +244,17 @@ export default function LocationDetail() {
                     <TableRow key={v.id} className="cursor-pointer" onClick={() => setOpenVisi(v.id)} data-testid={`visi-row-${v.id}`}>
                       <TableCell><StatusBadge status={v.status} done={v.progress_done} total={v.progress_total} /></TableCell>
                       <TableCell className="font-medium">{v.template_name} <span className="text-xs text-slate-400">· {v.visi_type}</span></TableCell>
-                      <TableCell className="font-mono text-xs">{v.code}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {v.code}
+                        {v.door_id && <div className="font-mono font-bold text-[11px] text-slate-600 mt-0.5">{v.door_id}</div>}
+                      </TableCell>
                       <TableCell className="text-xs text-slate-500">{buildPath(locations, v.location_id).slice(-2).join(" / ")}</TableCell>
                       <TableCell className="font-mono text-xs">{v.days_open}</TableCell>
                       <TableCell className="text-xs text-slate-500">{new Date(v.last_updated).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-right"><div className="flex justify-end" onClick={(e) => e.stopPropagation()}><VisiQuickActions visi={v} onChanged={load} /></div></TableCell>
                     </TableRow>
                   ))}
-                  {filtered.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-slate-400 py-8">No Visis for this location.</TableCell></TableRow>}
+                  {filtered.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-slate-400 py-8">No Visis for this location.</TableCell></TableRow>}
                 </TableBody>
               </Table>
               </div>
