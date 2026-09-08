@@ -304,21 +304,76 @@ ILA_APARTMENTS = [
 # count are created as N/A rooms so they can be activated / removed / re-marked later.
 ILA_STANDARD_BEDROOMS = 3
 
-# Rooms present in each type's plan (drawings A2800-A2812). Bedrooms are handled separately.
+# Rooms present in each type's plan (drawings A2800-A2812, verified per type). Bedrooms are handled separately.
 ILA_TYPE_ROOMS = {
-    1: {"ensuite": False, "study": True, "store": True, "linen": True},
-    2: {"ensuite": False, "study": False, "store": True, "linen": True},
-    3: {"ensuite": False, "study": False, "store": False, "linen": True},
-    4: {"ensuite": True, "study": True, "store": True, "linen": True},
-    5: {"ensuite": True, "study": False, "store": False, "linen": True},
-    6: {"ensuite": True, "study": True, "store": False, "linen": True},
-    7: {"ensuite": True, "study": True, "store": True, "linen": True},
-    8: {"ensuite": True, "study": False, "store": False, "linen": True},
-    9: {"ensuite": True, "study": False, "store": True, "linen": True},
-    10: {"ensuite": True, "study": True, "store": False, "linen": True},
-    11: {"ensuite": True, "study": False, "store": True, "linen": True},
-    12: {"ensuite": True, "study": True, "store": False, "linen": True},
-    13: {"ensuite": False, "study": True, "store": True, "linen": False},
+    1: {"ensuite": False, "study": True, "store": True, "linen": True, "powder": False},
+    2: {"ensuite": False, "study": False, "store": True, "linen": True, "powder": True},
+    3: {"ensuite": False, "study": False, "store": False, "linen": True, "powder": False},
+    4: {"ensuite": True, "study": True, "store": True, "linen": True, "powder": False},
+    5: {"ensuite": True, "study": False, "store": False, "linen": True, "powder": False},
+    6: {"ensuite": True, "study": True, "store": False, "linen": True, "powder": False},
+    7: {"ensuite": True, "study": True, "store": True, "linen": True, "powder": False},
+    8: {"ensuite": True, "study": False, "store": False, "linen": True, "powder": False},
+    9: {"ensuite": True, "study": False, "store": True, "linen": True, "powder": False},
+    10: {"ensuite": True, "study": True, "store": False, "linen": True, "powder": False},
+    11: {"ensuite": True, "study": False, "store": True, "linen": True, "powder": False},
+    12: {"ensuite": True, "study": True, "store": False, "linen": True, "powder": False},
+    13: {"ensuite": False, "study": True, "store": True, "linen": False, "powder": False},
+}
+
+# ILA common rooms per floor, extracted from the ILA GA plans (A2200-A2202): numbered
+# rooms use the "A." prefix. (name, keywords, is_wet)
+ILA_COMMON_ROOMS = {
+    "Ground Floor": [
+        ("A.G50 Corridor", ["CORRIDOR"], False),
+        ("Stair 03", ["STAIR 03"], False),
+        ("Stair 04", ["STAIR 04"], False),
+        ("Stair 05", ["STAIR 05"], False),
+        ("ILA Lift", ["ILA LIFT"], False),
+        ("ILA Lift Lobby", ["LIFT LOBBY"], False),
+        ("Mech Room", ["MECH"], False),
+        ("Garbage Chute", ["CHUTE"], False),
+        ("Group Meter Panel", ["GROUP METER"], False),
+        ("Circulation Link (Grade Link)", ["CIRCULATION LINK"], False),
+        ("Bicycle Parking (6 Spaces)", ["BICYCLE"], False),
+    ],
+    "First Floor": [
+        ("A.150 Corridor", ["CORRIDOR"], False),
+        ("A.152 Corridor", ["CORRIDOR"], False),
+        ("A.153 ILA Communal Space", ["COMMUNAL"], False),
+        ("A.155 Corridor", ["CORRIDOR"], False),
+        ("A.157 Lift Lobby", ["LIFT LOBBY"], False),
+        ("Stair 03", ["STAIR 03"], False),
+        ("Stair 04", ["STAIR 04"], False),
+        ("Stair 05", ["STAIR 05"], False),
+        ("ILA Lift", ["ILA LIFT"], False),
+        ("Mech Room", ["MECH"], False),
+        ("Garbage Chute", ["CHUTE"], False),
+        ("Hyd / Elec Riser", ["HYD ELEC"], False),
+    ],
+    "Second Floor": [
+        ("A.250 Corridor", ["CORRIDOR"], False),
+        ("A.252 Corridor", ["CORRIDOR"], False),
+        ("A.253 ILA Communal Space", ["COMMUNAL"], False),
+        ("A.255 Corridor", ["CORRIDOR"], False),
+        ("A.257 Lift Lobby", ["LIFT LOBBY"], False),
+        ("Stair 03", ["STAIR 03"], False),
+        ("Stair 04", ["STAIR 04"], False),
+        ("Stair 05", ["STAIR 05"], False),
+        ("ILA Lift", ["ILA LIFT"], False),
+        ("Mech Room", ["MECH"], False),
+        ("Garbage Chute", ["CHUTE"], False),
+        ("Hyd / Elec Riser", ["HYD ELEC"], False),
+        ("Bin Room Riser", ["BIN ROOM"], False),
+        ("Roof Access Hatch", ["ACCESS HATCH"], False),
+    ],
+    "Roof": [
+        ("Roof Safety & Anchor Point System", ["ROOF SAFETY", "ANCHOR POINT"], False),
+        ("Waste Room Exhaust Riser (Rooftop)", ["WASTE ROOM EXHAUST"], False),
+        ("Fresh Air Dropper (Rooftop)", ["FRESH AIR DROPPER"], False),
+        ("Car Park Exhaust (Rooftop)", ["CAR PARK EXHAUST"], False),
+        ("Stair / Lift Bulkheads", ["STAIR", "LIFT"], False),
+    ],
 }
 
 
@@ -431,7 +486,7 @@ async def seed_all(db, hash_password: Callable[[str], str]) -> None:
         for (rname, kws, wet) in RACF_FLOOR_SUPPORT_ROOMS.get(floor, []):
             rid = str(uuid.uuid4())
             locations.append({"id": rid, "project_id": project_id, "parent_id": fnode, "name": rname, "type": "Room", "order": order})
-            room_nodes.append((rid, floor, rname, kws, wet))
+            room_nodes.append((rid, floor, rname, kws, wet, "RACF"))
             order += 1
         for (room_no, type_desc) in RACF_BEDROOMS_BY_FLOOR.get(floor, []):
             rid = str(uuid.uuid4())
@@ -460,6 +515,8 @@ async def seed_all(db, hash_password: Callable[[str], str]) -> None:
         if rooms["ensuite"]:
             room_defs.append(("Ensuite", "active"))
         room_defs += [("Bathroom", "active"), ("Living / Kitchen / Dining", "active"), ("Laundry", "active")]
+        if rooms.get("powder"):
+            room_defs.append(("Powder Room", "active"))
         if rooms["study"]:
             room_defs.append(("Study", "active"))
         if rooms["store"]:
@@ -471,6 +528,18 @@ async def seed_all(db, hash_password: Callable[[str], str]) -> None:
             rid = str(uuid.uuid4())
             locations.append({"id": rid, "project_id": project_id, "parent_id": aid, "name": rname, "type": "Room", "order": i, "status": rstatus})
             apt_rooms[aid].append((rid, rname, rstatus == "active"))
+
+    # ILA common rooms per floor (corridors, stairs, lift, communal spaces) + utilities zone
+    ila_util_zones = {}
+    for floor, commons in ILA_COMMON_ROOMS.items():
+        fnode = floor_node("ILA", floor)
+        for i, (rname, kws, wet) in enumerate(commons):
+            rid = str(uuid.uuid4())
+            locations.append({"id": rid, "project_id": project_id, "parent_id": fnode, "name": rname, "type": "Room", "order": 200 + i})
+            room_nodes.append((rid, floor, rname, kws, wet, "ILA"))
+        util_zone = str(uuid.uuid4())
+        locations.append({"id": util_zone, "project_id": project_id, "parent_id": fnode, "name": "Fire Safety & Utilities", "type": "Zone", "order": 900})
+        ila_util_zones[floor] = util_zone
 
     racf_bnode = building_node("RACF")
     fixtures_zone = str(uuid.uuid4())
@@ -521,14 +590,19 @@ async def seed_all(db, hash_password: Callable[[str], str]) -> None:
         if d["building"] == "RACF" and d.get("floor"):
             racf_floor_ga_docs.setdefault(d["floor"], []).append(d["id"])
 
-    # RACF room-level Skirting (all rooms) + Sanitary (wet rooms) + Door (every room has a door)
-    for (rid, floor, rname, kws, wet) in room_nodes:
-        sk = match_docs("Skirting", "RACF", kws) or match_docs("Skirting", "RACF", None)[:3]
+    # RACF + ILA common room-level Skirting (all rooms) + Sanitary (wet rooms) + Door
+    ila_floor_ga_docs = {}
+    for d in documents:
+        if d["building"] == "ILA" and d.get("floor"):
+            ila_floor_ga_docs.setdefault(d["floor"], []).append(d["id"])
+    for (rid, floor, rname, kws, wet, bld) in room_nodes:
+        bga = racf_floor_ga_docs if bld == "RACF" else ila_floor_ga_docs
+        sk = match_docs("Skirting", bld, kws) or match_docs("Skirting", bld, None)[:3]
         make_visi("Skirting", rid, sk)
         if wet:
-            sn = match_docs("Sanitary", "RACF", kws) or match_docs("Sanitary", "RACF", ["Ensuite", "Amenities", "Bathroom"]) or match_docs("Sanitary", "RACF", None)
+            sn = match_docs("Sanitary", bld, kws) or match_docs("Sanitary", bld, ["Ensuite", "Amenities", "Bathroom"]) or match_docs("Sanitary", bld, None)
             make_visi("Sanitary", rid, sn)
-        dr = match_docs("Door", "RACF", kws) or racf_floor_ga_docs.get(floor, [])[:2]
+        dr = match_docs("Door", bld, kws) or bga.get(floor, [])[:2]
         make_visi("Door", rid, dr)
 
     # RACF bedrooms (Level 1 / Level 2): Door + Skirting Visi per bedroom, keyed off its room number
@@ -543,6 +617,14 @@ async def seed_all(db, hash_password: Callable[[str], str]) -> None:
         util_zone = racf_util_zones[floor]
         for (label, kws) in RACF_UTILITY_ITEMS:
             docs = racf_floor_ga_docs.get(floor, [])
+            make_visi("Miscellaneous", util_zone, docs)
+            visi_docs[-1]["fixture_label"] = label
+            visi_docs[-1]["template_name"] = f"Utility · {label} · {floor}"
+
+    # ILA fire safety utilities (FE-JC / FH items shown on the ILA GA plans)
+    for floor, util_zone in ila_util_zones.items():
+        for (label, kws) in RACF_UTILITY_ITEMS:
+            docs = ila_floor_ga_docs.get(floor, [])
             make_visi("Miscellaneous", util_zone, docs)
             visi_docs[-1]["fixture_label"] = label
             visi_docs[-1]["template_name"] = f"Utility · {label} · {floor}"

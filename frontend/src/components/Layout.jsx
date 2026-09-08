@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, ListChecks, Grid3x3, Settings, Milestone, FileSpreadsheet, ChevronDown, LogOut, Clover, Building, FileText, FileBarChart2, UserCog } from "lucide-react";
+import { LayoutDashboard, ListChecks, Grid3x3, Settings, Milestone, FileSpreadsheet, ChevronDown, LogOut, Clover, Building, FileText, FileBarChart2, UserCog, Menu, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useProject } from "@/context/ProjectContext";
 import { LocationTree } from "@/components/LocationTree";
+import { Assistant, AssistantButton } from "@/components/Assistant";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
@@ -24,6 +25,8 @@ export default function Layout() {
   const { user, logout, companies } = useAuth();
   const { projects, project, projectId, setProjectId } = useProject();
   const [locations, setLocations] = useState([]);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const navigate = useNavigate();
   const company = companies.find((c) => c.id === user?.company_id);
 
@@ -32,10 +35,18 @@ export default function Layout() {
   }, [projectId]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background">
+    <div className="flex h-screen w-screen overflow-hidden bg-background relative">
+      {/* Mobile overlay */}
+      {drawerOpen && (
+        <div className="md:hidden fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-[2px]" onClick={() => setDrawerOpen(false)} data-testid="sidebar-overlay" />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-[264px] shrink-0 bg-[#0F172A] text-slate-200 flex flex-col border-r border-slate-800">
-        <div className="px-4 py-4 border-b border-slate-800">
+      <aside
+        className={`fixed md:static inset-y-0 left-0 z-40 w-[280px] shrink-0 bg-[#0F172A] text-slate-200 flex flex-col border-r border-slate-800 transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
+        data-testid="sidebar"
+      >
+        <div className="px-4 py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-700 flex items-center justify-center shadow-inner">
               <Clover size={20} className="text-white" />
@@ -45,6 +56,9 @@ export default function Layout() {
               <div className="text-[10px] uppercase tracking-[0.28em] text-emerald-400">Carpenters QA</div>
             </div>
           </div>
+          <button className="md:hidden p-1.5 rounded-md hover:bg-slate-800 text-slate-400" onClick={() => setDrawerOpen(false)} aria-label="Close menu">
+            <X size={18} />
+          </button>
         </div>
 
         {/* Company + Project switchers */}
@@ -78,6 +92,7 @@ export default function Layout() {
               key={n.to}
               to={n.to}
               data-testid={n.testid}
+              onClick={() => setDrawerOpen(false)}
               className={({ isActive }) =>
                 `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                   isActive ? "bg-emerald-500 text-slate-900" : "text-slate-300 hover:bg-slate-800"
@@ -93,7 +108,7 @@ export default function Layout() {
         {/* Location tree */}
         <div className="flex-1 overflow-y-auto sidebar-scroll px-2 pb-4 mt-1">
           <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Locations</div>
-          <LocationTree locations={locations} />
+          <LocationTree locations={locations} onNavigate={() => setDrawerOpen(false)} />
         </div>
 
         {/* User */}
@@ -122,9 +137,25 @@ export default function Layout() {
       </aside>
 
       {/* Main */}
-      <main className="flex-1 overflow-hidden flex flex-col">
+      <main className="flex-1 overflow-hidden flex flex-col min-w-0">
+        {/* Mobile top bar */}
+        <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-[#0F172A] text-white shrink-0">
+          <button onClick={() => setDrawerOpen(true)} aria-label="Open menu" data-testid="mobile-menu-btn" className="p-1.5 rounded-md hover:bg-slate-800">
+            <Menu size={20} />
+          </button>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold truncate">{project?.name || "Cranmore QA"}</div>
+          </div>
+          <div className="h-7 w-7 rounded-full bg-emerald-500 text-slate-900 flex items-center justify-center text-xs font-bold shrink-0">
+            {user?.name?.[0] || "U"}
+          </div>
+        </div>
         <Outlet />
       </main>
+
+      {/* Assistant */}
+      <AssistantButton onClick={() => setAssistantOpen(true)} />
+      <Assistant open={assistantOpen} onClose={() => setAssistantOpen(false)} />
     </div>
   );
 }

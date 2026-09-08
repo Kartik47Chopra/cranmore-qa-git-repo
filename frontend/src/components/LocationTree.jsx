@@ -21,7 +21,7 @@ function buildByParent(locations) {
   return byParent;
 }
 
-export function LocationTree({ locations }) {
+export function LocationTree({ locations, onNavigate }) {
   const navigate = useNavigate();
   const { locationId } = useParams();
   const [expanded, setExpanded] = useState({});
@@ -64,7 +64,7 @@ export function LocationTree({ locations }) {
           <div
             key={node.id}
             data-testid={`loc-node-${node.id}`}
-            onClick={() => navigate(`/location/${node.id}`)}
+            onClick={() => { navigate(`/location/${node.id}`); onNavigate?.(); }}
             className={`flex items-center gap-1 rounded-md py-1.5 pr-2 cursor-pointer text-sm transition-colors ${
               active ? "bg-emerald-500/20 text-amber-300" : "text-slate-300 hover:bg-slate-800"
             }`}

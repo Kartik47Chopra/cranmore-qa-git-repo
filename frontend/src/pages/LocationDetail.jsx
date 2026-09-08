@@ -91,9 +91,9 @@ export default function LocationDetail() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <header className="px-6 py-4 border-b border-slate-200 bg-white shrink-0 flex items-center justify-between">
-        <div>
-          <div className="text-xs text-muted-foreground flex items-center gap-1">{path.join(" / ")}</div>
+      <header className="px-4 md:px-6 py-4 border-b border-slate-200 bg-white shrink-0 flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-xs text-muted-foreground flex items-center gap-1 truncate">{path.join(" / ")}</div>
           <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-slate-900 flex items-center gap-2">
             <MapPin size={20} className="text-emerald-600" /> {loc?.name || "Location"}
           </h1>
@@ -103,7 +103,7 @@ export default function LocationDetail() {
 
       <div className="flex-1 overflow-hidden flex flex-col">
         <Tabs defaultValue="visis" className="flex-1 flex flex-col overflow-hidden">
-          <TabsList className="mx-6 mt-3 w-fit">
+          <TabsList className="mx-4 md:mx-6 mt-3 w-fit max-w-[calc(100%-2rem)] overflow-x-auto no-scrollbar">
             <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
             <TabsTrigger value="visis" data-testid="tab-visis">Visis</TabsTrigger>
             <TabsTrigger value="milestones" data-testid="tab-milestones">Milestones</TabsTrigger>
@@ -122,7 +122,7 @@ export default function LocationDetail() {
           </TabsContent>
 
           <TabsContent value="visis" className="flex-1 overflow-hidden flex flex-col mt-0">
-            <div className="flex items-center gap-2 px-6 py-3 border-b">
+            <div className="flex flex-wrap items-center gap-2 px-4 md:px-6 py-3 border-b">
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-40 h-9" data-testid="filter-status"><SelectValue placeholder="Status" /></SelectTrigger>
                 <SelectContent>

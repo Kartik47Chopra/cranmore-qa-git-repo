@@ -936,6 +936,17 @@ async def require_admin(user: dict = Depends(get_current_user)):
 
 ALLOWED_ROLES = {"admin", "pm", "trade", "viewer"}
 
+# ---------------- Assistant (AI helper) ----------------
+from assistant import answer as assistant_answer  # noqa: E402
+
+
+@api_router.post("/assistant/chat")
+async def assistant_chat(body: dict, user: dict = Depends(get_current_user)):
+    project_id = body.get("project_id")
+    if not project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    return await assistant_answer(db, project_id, body.get("message", ""), user.get("name", ""))
+
 
 @api_router.get("/users")
 async def list_users(user: dict = Depends(require_admin)):
