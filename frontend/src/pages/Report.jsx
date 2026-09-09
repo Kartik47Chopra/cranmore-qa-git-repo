@@ -3,7 +3,8 @@ import { api, fileUrl, API } from "@/lib/api";
 import { useProject } from "@/context/ProjectContext";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Printer, FileSpreadsheet, CheckCircle2, Circle, Camera } from "lucide-react";
+import { Printer, FileSpreadsheet, FileDown, CheckCircle2, Circle, Camera, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Report() {
   const { projectId, project } = useProject();

@@ -1182,17 +1182,434 @@ async def report_excel(project_id: str, request: Request, auth: str = Query(None
     path, top = _loc_helpers(locs)
     companies = {c["id"]: c["name"] for c in await db.companies.find().to_list(500)}
 
-    def esc(x):
-        return '"' + str(x).replace('"', '""') + '"'
-    lines = [",".join(["Code", "Trade", "Building", "Location", "Assignee", "Status", "Steps Done", "Steps Total", "Days Open"])]
-    for v in sorted(visis, key=lambda v: ((top(v["location_id"]) or {}).get("name", ""), v.get("template_name", ""))):
-        lines.append(",".join([
-            esc(v["code"]), esc(_trade_of(v)), esc((top(v["location_id"]) or {}).get("name", "")),
-            esc(path(v["location_id"])), esc(companies.get(v.get("assignee_company_id"), "-")),
-            esc(v["status"]), esc(v["progress_done"]), esc(v["progress_total"]), esc(v["days_open"]),
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Progress Report"
+
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin", color="E2E8F0"),
+        right=Side(style="thin", color="E2E8F0"),
+        top=Side(style="thin", color="E2E8F0"),
+        bottom=Side(style="thin", color="E2E8F0"),
+    )
+
+    headers = ["Code", "Trade", "Building", "Location", "Assignee", "Status", "Steps Done", "Steps Total", "Days Open"]
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = thin_border
+
+    sorted_visis = sorted(visis, key=lambda v: ((top(v["location_id"]) or {}).get("name", ""), v.get("template_name", "")))
+    for row_idx, v in enumerate(sorted_visis, 2):
+        row_data = [
+            v["code"], _trade_of(v), (top(v["location_id"]) or {}).get("name", ""),
+            path(v["location_id"]), companies.get(v.get("assignee_company_id"), "-"),
+            v["status"], v["progress_done"], v["progress_total"], v["days_open"],
+        ]
+        for col, val in enumerate(row_data, 1):
+            cell = ws.cell(row=row_idx, column=col, value=val)
+            cell.border = thin_border
+            if col == 6:  # Status column coloring
+                color_map = {"closed": "22C55E", "in_progress": "F59E0B", "open": "EF4444"}
+                cell.font = Font(color=color_map.get(val, "000000"), bold=True)
+
+    col_widths = [14, 28, 20, 40, 24, 14, 12, 12, 10]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[chr(64 + i)].width = w
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(
+        content=buf.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=progress-report.xlsx"},
+    )
+
+
+@api_router.get("/reports/pdf")
+async def report_pdf(project_id: str, request: Request, auth: str = Query(None)):
+    verify_token(request, auth)
+    raw, visis = await _report_visis(project_id, await _user_from_request(request))
+    locs = [clean(l) for l in await db.locations.find({"project_id": project_id}).to_list(2000)]
+    path, top = _loc_helpers(locs)
+    companies = {c["id"]: c["name"] for c in await db.companies.find().to_list(500)}
+    project = clean(await db.projects.find_one({"id": project_id}))
+    vids = [v["id"] for v in visis]
+    atts = await db.attachments.find({"visi_id": {"$in": vids}, "is_deleted": False}).to_list(5000)
+    atts_by_visi = {}
+    for a in atts:
+        atts_by_visi.setdefault(a["visi_id"], []).append(a)
+
+    import io as _io
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage,
+        PageBreak, KeepTogether,
+    )
+    from reportlab.lib.enums import TA_LEFT
+
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=15 * mm, bottomMargin=15 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="SectionTitle", fontName="Helvetica-Bold", fontSize=13, spaceAfter=6, spaceBefore=10, textColor=colors.HexColor("#0F172A")))
+    styles.add(ParagraphStyle(name="ItemTitle", fontName="Helvetica-Bold", fontSize=10, spaceAfter=2))
+    styles.add(ParagraphStyle(name="Small", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("#64748B")))
+    styles.add(ParagraphStyle(name="StepDone", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("#16A34A")))
+    styles.add(ParagraphStyle(name="StepOutstanding", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("#475569")))
+    story = []
+
+    # Header
+    story.append(Paragraph(f"<b>{project.get('name', 'Progress Report')}</b>", ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=18, textColor=colors.HexColor("#0F172A"))))
+    story.append(Paragraph(f"{project.get('address', '')}", styles["Small"]))
+    story.append(Paragraph(f"Cranmore Carpenters QA — Generated {now_iso()[:19]}", styles["Small"]))
+    story.append(Spacer(1, 8))
+
+    # Summary table
+    total = len(visis)
+    closed = sum(1 for v in visis if v["status"] == "closed")
+    step_done = sum(v["progress_done"] for v in visis)
+    step_total = sum(v["progress_total"] for v in visis)
+    pct = round((step_done / step_total * 100) if step_total else 0)
+    summary_data = [
+        ["Total inspections", "Closed", "Checklist progress"],
+        [str(total), str(closed), f"{pct}%"],
+    ]
+    summary_tbl = Table(summary_data, colWidths=[60 * mm, 60 * mm, 60 * mm])
+    summary_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, 1), [colors.HexColor("#F8FAFC")]),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(summary_tbl)
+    story.append(Spacer(1, 10))
+
+    # Per-building summary
+    bld_data = [["Building", "Trade", "Total", "Closed", "In Progress", "Open", "Progress"]]
+    bld_result = {}
+    for v in visis:
+        b = (top(v["location_id"]) or {}).get("name", "General")
+        trade = _trade_of(v)
+        g = bld_result.setdefault(b, {}).setdefault(trade, {"total": 0, "closed": 0, "in_progress": 0, "open": 0, "step_done": 0, "step_total": 0})
+        g["total"] += 1
+        g["step_done"] += v["progress_done"]
+        g["step_total"] += v["progress_total"]
+        st = v["status"]
+        g[st if st in ("closed", "in_progress", "open") else "open"] += 1
+    for b, trades in sorted(bld_result.items()):
+        for t, vals in sorted(trades.items()):
+            p = round((vals["step_done"] / vals["step_total"] * 100) if vals["step_total"] else 0)
+            bld_data.append([b, t, str(vals["total"]), str(vals["closed"]), str(vals["in_progress"]), str(vals["open"]), f"{p}%"])
+    if len(bld_data) > 1:
+        bld_tbl = Table(bld_data, colWidths=[40 * mm, 38 * mm, 16 * mm, 16 * mm, 22 * mm, 16 * mm, 22 * mm])
+        bld_tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ]))
-    csv = "\n".join(lines)
-    return Response(content=csv, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=summerset-progress.csv"})
+        story.append(Paragraph("Summary by Building &amp; Trade", styles["SectionTitle"]))
+        story.append(bld_tbl)
+        story.append(Spacer(1, 10))
+
+    # Detailed items
+    story.append(Paragraph("Detailed Status", styles["SectionTitle"]))
+    for v in sorted(visis, key=lambda v: ((top(v["location_id"]) or {}).get("name", ""), v.get("template_name", ""), v.get("code", ""))):
+        done_steps = [s["label"] for s in v.get("steps", []) if s.get("status") == "complete"]
+        outstanding_steps = [s["label"] for s in v.get("steps", []) if s.get("status") != "complete"]
+        item_flow = []
+        item_flow.append(Paragraph(
+            f"{v['template_name']} <font color='#94A3B8' size=7>{v.get('code', '')}</font> — "
+            f"<font color='{'#16A34A' if v['status'] == 'closed' else '#F59E0B' if v['status'] == 'in_progress' else '#EF4444'}'><b>{v['status'].upper()}</b></font>",
+            styles["ItemTitle"]
+        ))
+        item_flow.append(Paragraph(f"Location: {path(v['location_id'])} | Assignee: {companies.get(v.get('assignee_company_id'), '—')} | Progress: {v['progress_done']}/{v['progress_total']}", styles["Small"]))
+        if done_steps:
+            item_flow.append(Paragraph("<b>Completed:</b> " + ", ".join(done_steps), styles["StepDone"]))
+        if outstanding_steps:
+            item_flow.append(Paragraph("<b>Outstanding:</b> " + ", ".join(outstanding_steps), styles["StepOutstanding"]))
+
+        # Photos
+        photos = atts_by_visi.get(v["id"], [])
+        for p in photos[:6]:
+            try:
+                img_data, _ = get_object(p["storage_path"])
+                img_io = _io.BytesIO(img_data)
+                from PIL import Image as PILImage
+                pil_img = PILImage.open(img_io)
+                w, h = pil_img.size
+                max_w = 60 * mm
+                max_h = 45 * mm
+                ratio = min(max_w / w * 72 / 96, max_h / h * 72 / 96)
+                img_io.seek(0)
+                item_flow.append(RLImage(img_io, width=w * ratio * 96 / 72, height=h * ratio * 96 / 72))
+            except Exception:
+                item_flow.append(Paragraph(f"[Photo: {p.get('title', 'image')}]", styles["Small"]))
+
+        story.append(KeepTogether(item_flow))
+        story.append(Spacer(1, 6))
+
+    doc.build(story)
+    buf.seek(0)
+    return Response(
+        content=buf.read(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=progress-report.pdf"},
+    )
+
+
+async def _user_from_request(request: Request):
+    """Reconstruct a minimal user dict from the JWT for endpoints that use verify_token."""
+    token = request.cookies.get("access_token")
+    if not token:
+        ah = request.headers.get("Authorization", "")
+        if ah.startswith("Bearer "):
+            token = ah[7:]
+    if not token and request.query_params.get("auth"):
+        token = request.query_params.get("auth")
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        if user:
+            user["id"] = str(user["_id"])
+            user.pop("_id", None)
+            user.pop("password_hash", None)
+            return user
+    except Exception:
+        pass
+    return None
+
+
+# ------------------------------------------------------------------ Tasks
+@api_router.get("/tasks")
+async def list_tasks(project_id: str, user: dict = Depends(get_current_user)):
+    tasks = [clean(t) for t in await db.tasks.find({"project_id": project_id}).sort("created_at", -1).to_list(2000)]
+    # Enrich with assignee/assigner names
+    user_ids = set()
+    for t in tasks:
+        if t.get("assigned_to"): user_ids.add(t["assigned_to"])
+        if t.get("assigned_by"): user_ids.add(t["assigned_by"])
+    users = {}
+    if user_ids:
+        for u in await db.users.find({"_id": {"$in": [ObjectId(uid) for uid in user_ids if ObjectId.is_valid(uid)]}}).to_list(500):
+            users[str(u["_id"])] = u.get("name", u.get("email", "Unknown"))
+    for t in tasks:
+        t["assigned_to_name"] = users.get(t.get("assigned_to"), "Unassigned")
+        t["assigned_by_name"] = users.get(t.get("assigned_by"), "Unknown")
+    return tasks
+
+
+@api_router.get("/tasks/mine")
+async def my_tasks(user: dict = Depends(get_current_user)):
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    tasks = [clean(t) for t in await db.tasks.find({
+        "assigned_to": user["id"],
+        "status": {"$ne": "done"},
+    }).sort("due_date", 1).to_list(500)]
+    for t in tasks:
+        t["is_today"] = (t.get("due_date", "")[:10] == today)
+    return tasks
+
+
+@api_router.post("/tasks")
+async def create_task(body: dict, user: dict = Depends(get_current_user)):
+    task = {
+        "id": str(uuid.uuid4()),
+        "title": body.get("title", ""),
+        "description": body.get("description", ""),
+        "project_id": body.get("project_id", ""),
+        "assigned_to": body.get("assigned_to"),
+        "assigned_by": user["id"],
+        "assigned_by_name": user.get("name", ""),
+        "due_date": body.get("due_date"),
+        "priority": body.get("priority", "medium"),
+        "status": body.get("status", "todo"),
+        "source": body.get("source", "manual"),
+        "github_issue_number": body.get("github_issue_number"),
+        "created_at": now_iso(),
+        "completed_at": None,
+    }
+    await db.tasks.insert_one(dict(task))
+    # Log activity
+    assignee_name = "Unknown"
+    if body.get("assigned_to"):
+        u = await db.users.find_one({"_id": ObjectId(body["assigned_to"])})
+        if u:
+            assignee_name = u.get("name", u.get("email", "Unknown"))
+    await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": None, "user": user["name"],
+        "text": f"assigned task '{body.get('title', '')}' to {assignee_name}", "type": "task", "created_at": now_iso(),
+        "project_id": body.get("project_id", "")})
+    task.pop("_id", None)
+    return task
+
+
+@api_router.patch("/tasks/{task_id}")
+async def update_task(task_id: str, body: dict, user: dict = Depends(get_current_user)):
+    t = await db.tasks.find_one({"id": task_id})
+    if not t:
+        raise HTTPException(status_code=404, detail="Task not found")
+    upd = {}
+    for k in ("title", "description", "assigned_to", "due_date", "priority", "status"):
+        if k in body:
+            upd[k] = body[k]
+    if upd.get("status") == "done" and not t.get("completed_at"):
+        upd["completed_at"] = now_iso()
+    if upd.get("status") and upd["status"] != "done":
+        upd["completed_at"] = None
+    if upd:
+        upd["updated_at"] = now_iso()
+        await db.tasks.update_one({"id": task_id}, {"$set": upd})
+    # Log activity on status change
+    if "status" in body:
+        await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": None, "user": user["name"],
+            "text": f"marked task '{t.get('title', '')}' as {body['status']}", "type": "task", "created_at": now_iso(),
+            "project_id": t.get("project_id", "")})
+    return clean(await db.tasks.find_one({"id": task_id}))
+
+
+@api_router.delete("/tasks/{task_id}")
+async def delete_task(task_id: str, user: dict = Depends(get_current_user)):
+    t = await db.tasks.find_one({"id": task_id})
+    if not t:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await db.tasks.delete_one({"id": task_id})
+    await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": None, "user": user["name"],
+        "text": f"deleted task '{t.get('title', '')}'", "type": "task", "created_at": now_iso(),
+        "project_id": t.get("project_id", "")})
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ Activities
+@api_router.get("/activities")
+async def list_activities(project_id: str, sort: str = "recent", user: dict = Depends(get_current_user)):
+    q = {"project_id": project_id}
+    # Also include activities linked to visis in this project
+    visi_ids = [v["id"] for v in await db.visis.find({"project_id": project_id}, {"id": 1}).to_list(10000)]
+    or_q = [{"project_id": project_id}]
+    if visi_ids:
+        or_q.append({"visi_id": {"$in": visi_ids}})
+    raw = await db.activity.find({"$or": or_q}).to_list(5000)
+    acts = [clean(a) for a in raw]
+    if sort == "name":
+        acts.sort(key=lambda a: (a.get("user", ""), a.get("created_at", ""), ), reverse=False)
+    elif sort == "date":
+        acts.sort(key=lambda a: a.get("created_at", ""))
+    else:  # recent
+        acts.sort(key=lambda a: a.get("created_at", ""), reverse=True)
+    return acts
+
+
+# ------------------------------------------------------------------ GitHub Integration
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
+
+
+@api_router.get("/github/status")
+async def github_status(user: dict = Depends(get_current_user)):
+    return {"connected": bool(GITHUB_TOKEN and GITHUB_REPO), "repo": GITHUB_REPO}
+
+
+@api_router.get("/github/issues")
+async def github_issues(state: str = "open", user: dict = Depends(get_current_user)):
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        raise HTTPException(status_code=400, detail="GitHub not configured. Set GITHUB_TOKEN and GITHUB_REPO.")
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/issues"
+    resp = requests.get(url, headers=headers, params={"state": state, "per_page": 100}, timeout=30)
+    if resp.status_code == 403 and "rate limit" in resp.text.lower():
+        raise HTTPException(status_code=429, detail="GitHub API rate limit exceeded")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"GitHub API error: {resp.status_code}")
+    issues = resp.json()
+    # Filter out PRs (GitHub returns them in issues endpoint)
+    issues = [i for i in issues if "pull_request" not in i]
+    result = []
+    for i in issues:
+        result.append({
+            "number": i["number"], "title": i["title"], "state": i["state"],
+            "body": (i.get("body") or "")[:2000], "created_at": i["created_at"], "updated_at": i["updated_at"],
+            "html_url": i["html_url"], "user": i["user"]["login"],
+            "labels": [l["name"] for l in i.get("labels", [])],
+            "assignees": [a["login"] for a in i.get("assignees", [])],
+        })
+    return result
+
+
+@api_router.get("/github/releases")
+async def github_releases(user: dict = Depends(get_current_user)):
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        raise HTTPException(status_code=400, detail="GitHub not configured. Set GITHUB_TOKEN and GITHUB_REPO.")
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+    resp = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases", headers=headers, params={"per_page": 20}, timeout=30)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"GitHub API error: {resp.status_code}")
+    releases = resp.json()
+    return [{"id": r["id"], "tag": r["tag_name"], "name": r.get("name", r["tag_name"]),
+             "body": (r.get("body") or "")[:2000], "created_at": r["created_at"],
+             "html_url": r["html_url"], "author": r["author"]["login"]} for r in releases]
+
+
+@api_router.post("/github/sync-issue")
+async def github_sync_issue(body: dict, user: dict = Depends(get_current_user)):
+    """Convert a GitHub issue into an internal task."""
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        raise HTTPException(status_code=400, detail="GitHub not configured")
+    issue_num = body.get("issue_number")
+    project_id = body.get("project_id")
+    assigned_to = body.get("assigned_to")
+    if not issue_num:
+        raise HTTPException(status_code=400, detail="issue_number is required")
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+    resp = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/issues/{issue_num}", headers=headers, timeout=30)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="GitHub API error")
+    issue = resp.json()
+    task = {
+        "id": str(uuid.uuid4()),
+        "title": f"[#{issue['number']}] {issue['title']}",
+        "description": (issue.get("body") or "")[:3000],
+        "project_id": project_id or "",
+        "assigned_to": assigned_to,
+        "assigned_by": user["id"],
+        "assigned_by_name": user.get("name", ""),
+        "due_date": body.get("due_date"),
+        "priority": body.get("priority", "medium"),
+        "status": "todo",
+        "source": "github",
+        "github_issue_number": issue_num,
+        "created_at": now_iso(),
+        "completed_at": None,
+    }
+    await db.tasks.insert_one(dict(task))
+    await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": None, "user": user["name"],
+        "text": f"synced GitHub issue #{issue_num} as task", "type": "github", "created_at": now_iso(),
+        "project_id": project_id or ""})
+    task.pop("_id", None)
+    return task
 
 
 # ------------------------------------------------------------------ Floor-plan pins
