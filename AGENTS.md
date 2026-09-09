@@ -27,6 +27,14 @@ docker compose -f docker-compose.base44.yml up -d
 - Admin: `factory@maxxdoors.com.au` / `Cranmore2026!`
 - Trade (plumbing): `plumbing@maxxdoors.com.au` / `Cranmore2026!`
 
+## Tasks, Activity, GitHub, Reports (added 2026-09-09)
+- **Tasks**: `tasks` collection. `GET/POST /tasks`, `GET /tasks/mine` (assigned to current user, sorted by due date), `PATCH/DELETE /tasks/{id}`. Any authenticated user can assign to anyone; user picker uses `GET /users/directory` (non-admin basic list). Task events are logged into `activity` with `type: "task"` and `project_id` set.
+- **Activity page**: `GET /activities?project_id=X&sort=recent|name|date` — merges activity docs matching the project OR visis in the project. Frontend also supports "group by person".
+- **GitHub**: needs `GITHUB_TOKEN` + `GITHUB_REPO` (must be `owner/repo` format — a bare repo name gives a 404 from the GitHub API, surfaced to the UI). Endpoints: `/github/status`, `/github/issues?state=open|closed|all`, `/github/releases`, `POST /github/sync-issue` (converts an issue to a task).
+- **Excel export**: `GET /reports/excel` now returns a real `.xlsx` via openpyxl (styled header, frozen pane, status colors). Frontend downloads it via axios blob (auth cookies) instead of `<a href>` — this was the "corrupted file" fix.
+- **PDF export**: `GET /reports/pdf` generates a reportlab PDF (header, KPIs, building/trade summary, per-item detail, photos embedded when attachments exist). Frontend has three separate buttons: Excel / Download PDF / Print (`window.print()`).
+- **Backend deps added**: `openpyxl==3.1.5`, `reportlab==4.4.4` — requires image rebuild (`docker compose -f docker-compose.base44.yml up -d --build backend`).
+
 ## Documents/sheets (added 2026-09-08)
 - `GET /documents/{id}/file` serves INLINE (no Content-Disposition) so iframes render PDFs; `?download=1` switches to attachment for real downloads. Download links must use `${docUrl(id)}?download=1`.
 - `GET /documents/{id}/page?n=N` renders PDF page N as PNG (fitz, cached in backend/data/thumbs). `GET /documents/{id}/page_count` returns `{"pages": n}`.

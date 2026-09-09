@@ -7,6 +7,16 @@
       "name": "EMERGENT_LLM_KEY",
       "description": "Emergent object storage API key — needed for photo/attachment uploads. Get it from the Emergent integrations dashboard. The app boots without it (seeded documents are served locally), but file uploads will fail until it is set.",
       "requiredAtBoot": false
+    },
+    {
+      "name": "GITHUB_TOKEN",
+      "description": "GitHub Personal Access Token with repo/issues read scope — create at github.com/settings/tokens. Needed for the GitHub page to pull issues and releases.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "GITHUB_REPO",
+      "description": "GitHub repository in 'owner/repo' format (e.g. myname/my-repo). The repo whose issues and releases are pulled into the app.",
+      "requiredAtBoot": false
     }
   ]
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, ListChecks, Grid3x3, Settings, Milestone, FileSpreadsheet, ChevronDown, LogOut, Clover, Building, FileText, FileBarChart2, UserCog, Menu, X } from "lucide-react";
+import { LayoutDashboard, ListChecks, Grid3x3, Settings, Milestone, FileSpreadsheet, ChevronDown, LogOut, Clover, Building, FileText, FileBarChart2, UserCog, Menu, X, History, ClipboardCheck, CalendarCheck, Github } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useProject } from "@/context/ProjectContext";
@@ -12,11 +12,15 @@ import {
 
 const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
+  { to: "/my-tasks", label: "My Tasks", icon: CalendarCheck, testid: "nav-my-tasks" },
+  { to: "/assign-tasks", label: "Assign Tasks", icon: ClipboardCheck, testid: "nav-assign-tasks" },
   { to: "/your-list", label: "Your List", icon: ListChecks, testid: "nav-your-list" },
   { to: "/tracker", label: "Multi-Template Tracker", icon: Grid3x3, testid: "nav-tracker" },
   { to: "/documents", label: "Documents", icon: FileText, testid: "nav-documents" },
   { to: "/milestones", label: "Milestone Tracker", icon: Milestone, testid: "nav-milestones" },
+  { to: "/activity", label: "Activity", icon: History, testid: "nav-activity" },
   { to: "/report", label: "Progress Report", icon: FileBarChart2, testid: "nav-report" },
+  { to: "/github", label: "GitHub", icon: Github, testid: "nav-github" },
   { to: "/setup", label: "Project Setup", icon: Settings, testid: "nav-setup" },
   { to: "/users", label: "User Management", icon: UserCog, testid: "nav-users", adminOnly: true },
 ];

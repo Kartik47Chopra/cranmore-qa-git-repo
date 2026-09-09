@@ -1040,6 +1040,16 @@ async def assistant_chat(body: dict, user: dict = Depends(get_current_user)):
     return await assistant_answer(db, project_id, body.get("message", ""), user.get("name", ""))
 
 
+@api_router.get("/users/directory")
+async def users_directory(user: dict = Depends(get_current_user)):
+    """Basic user directory available to all authenticated users (for task assignment)."""
+    out = []
+    for u in await db.users.find().to_list(1000):
+        out.append({"id": str(u["_id"]), "name": u.get("name") or u.get("email", ""), "role": u.get("role"), "company_id": u.get("company_id")})
+    out.sort(key=lambda x: x["name"].lower())
+    return out
+
+
 @api_router.get("/users")
 async def list_users(user: dict = Depends(require_admin)):
     out = []
@@ -1542,6 +1552,10 @@ async def github_issues(state: str = "open", user: dict = Depends(get_current_us
     resp = requests.get(url, headers=headers, params={"state": state, "per_page": 100}, timeout=30)
     if resp.status_code == 403 and "rate limit" in resp.text.lower():
         raise HTTPException(status_code=429, detail="GitHub API rate limit exceeded")
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail=f"Repository '{GITHUB_REPO}' not found — GITHUB_REPO must be in 'owner/repo' format (e.g. myname/cranmore-qa)")
+    if resp.status_code in (401, 403):
+        raise HTTPException(status_code=502, detail="GitHub rejected the token — check GITHUB_TOKEN has repo/issues read access")
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"GitHub API error: {resp.status_code}")
     issues = resp.json()
