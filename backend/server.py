@@ -1535,7 +1535,11 @@ async def list_activities(project_id: str, sort: str = "recent", user: dict = De
 
 # ------------------------------------------------------------------ GitHub Integration
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
+_raw_repo = os.environ.get("GITHUB_REPO", "").strip()
+# Normalize: accept "owner/repo", full URL, or ".git" suffix — extract just "owner/repo"
+import re as _re
+_m = _re.search(r"(?:github\.com[:/])?([^/]+/[^/]+?)(?:\.git)?$", _raw_repo)
+GITHUB_REPO = _m.group(1) if _m else _raw_repo
 
 
 @api_router.get("/github/status")
