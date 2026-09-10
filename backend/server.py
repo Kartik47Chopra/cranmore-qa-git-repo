@@ -1748,14 +1748,6 @@ app.add_middleware(
 async def startup():
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
-    if EMERGENT_KEY:
-        try:
-            init_storage()
-            logger.info("Storage initialized")
-        except Exception as e:
-            logger.warning(f"Storage init failed (photo uploads will not work until EMERGENT_LLM_KEY is set): {e}")
-    else:
-        logger.warning("EMERGENT_LLM_KEY not set — photo uploads disabled. Set it in the Secrets panel to enable.")
     from seed_data import seed_all
     await seed_all(db, hash_password)
 
