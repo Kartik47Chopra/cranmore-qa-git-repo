@@ -36,7 +36,11 @@ JWT_ALGORITHM = "HS256"
 
 
 def get_jwt_secret() -> str:
-    return os.environ["JWT_SECRET"]
+    secret = os.environ["JWT_SECRET"]
+    # Pad to at least 32 bytes to satisfy PyJWT's InsecureKeyLengthWarning for HS256
+    while len(secret) < 32:
+        secret = secret + secret
+    return secret[:64]
 
 
 def hash_password(password: str) -> str:
@@ -1744,11 +1748,14 @@ app.add_middleware(
 async def startup():
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
-    try:
-        init_storage()
-        logger.info("Storage initialized")
-    except Exception as e:
-        logger.error(f"Storage init failed: {e}")
+    if EMERGENT_KEY:
+        try:
+            init_storage()
+            logger.info("Storage initialized")
+        except Exception as e:
+            logger.warning(f"Storage init failed (photo uploads will not work until EMERGENT_LLM_KEY is set): {e}")
+    else:
+        logger.warning("EMERGENT_LLM_KEY not set — photo uploads disabled. Set it in the Secrets panel to enable.")
     from seed_data import seed_all
     await seed_all(db, hash_password)
 
