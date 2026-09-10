@@ -21,7 +21,7 @@ function buildByParent(locations) {
   return byParent;
 }
 
-export function LocationTree({ locations }) {
+export function LocationTree({ locations, onNavigate }) {
   const navigate = useNavigate();
   const { locationId } = useParams();
   const [expanded, setExpanded] = useState({});
@@ -64,7 +64,7 @@ export function LocationTree({ locations }) {
           <div
             key={node.id}
             data-testid={`loc-node-${node.id}`}
-            onClick={() => navigate(`/location/${node.id}`)}
+            onClick={() => { navigate(`/location/${node.id}`); onNavigate?.(); }}
             className={`flex items-center gap-1 rounded-md py-1.5 pr-2 cursor-pointer text-sm transition-colors ${
               active ? "bg-emerald-500/20 text-amber-300" : "text-slate-300 hover:bg-slate-800"
             }`}
@@ -84,8 +84,11 @@ export function LocationTree({ locations }) {
             ) : (
               <span className="w-[14px] shrink-0" />
             )}
-            <Icon size={14} className="shrink-0 opacity-70" />
-            <span className="truncate">{node.name}</span>
+            <Icon size={14} className={`shrink-0 ${node.status === "na" ? "opacity-30" : "opacity-70"}`} />
+            <span className={`truncate ${node.status === "na" ? "text-slate-500 line-through decoration-slate-600" : ""}`}>{node.name}</span>
+            {node.status === "na" && (
+              <span className="ml-auto shrink-0 text-[9px] font-bold text-slate-500 bg-slate-700/60 rounded px-1 py-px">N/A</span>
+            )}
           </div>
         );
       })}

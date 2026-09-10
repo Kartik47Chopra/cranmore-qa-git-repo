@@ -32,11 +32,11 @@ export function AttachmentModal({ attachment, open, onClose, onSaved }) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-5xl p-0 overflow-hidden gap-0" data-testid="attachment-modal">
+      <DialogContent showClose={false} className="max-w-5xl p-0 overflow-hidden gap-0 h-[92dvh] sm:h-auto" data-testid="attachment-modal">
         <DialogTitle className="sr-only">Attachment viewer</DialogTitle>
-        <div className="flex h-[80vh]">
+        <div className="flex flex-col md:flex-row h-full md:h-[80vh]">
           {/* viewer */}
-          <div className="flex-1 bg-slate-900 relative flex flex-col">
+          <div className="h-[45dvh] md:h-auto md:flex-1 bg-slate-900 relative flex flex-col">
             <div className="absolute top-3 left-3 z-10 flex gap-1.5">
               <Button size="icon" variant="secondary" className="h-8 w-8" onClick={() => setZoom((z) => Math.min(4, z + 0.25))} data-testid="att-zoom-in"><ZoomIn size={15} /></Button>
               <Button size="icon" variant="secondary" className="h-8 w-8" onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))} data-testid="att-zoom-out"><ZoomOut size={15} /></Button>
@@ -49,7 +49,7 @@ export function AttachmentModal({ attachment, open, onClose, onSaved }) {
           </div>
 
           {/* meta panel */}
-          <div className="w-[320px] shrink-0 border-l border-slate-200 flex flex-col">
+          <div className="w-full md:w-[320px] shrink-0 border-l border-slate-200 flex flex-col flex-1 min-h-0">
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <span className="font-display font-bold uppercase text-sm">Attachment</span>
               <div className="flex gap-1">

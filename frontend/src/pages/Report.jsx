@@ -3,7 +3,8 @@ import { api, fileUrl, API } from "@/lib/api";
 import { useProject } from "@/context/ProjectContext";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Printer, FileSpreadsheet, CheckCircle2, Circle, Camera } from "lucide-react";
+import { Printer, FileSpreadsheet, FileDown, CheckCircle2, Circle, Camera, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Report() {
   const { projectId, project } = useProject();
@@ -18,6 +19,32 @@ export default function Report() {
 
   const pct = (d, t) => (t > 0 ? Math.round((d / t) * 100) : 0);
 
+  const [downloading, setDownloading] = useState(null);
+
+  const downloadFile = async (endpoint, filename) => {
+    setDownloading(filename);
+    try {
+      const res = await api.get(`/reports/${endpoint}?project_id=${projectId}`, { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success(`${filename} downloaded`);
+    } catch (e) {
+      let msg = "Download failed";
+      if (e.response?.data instanceof Blob) {
+        try { msg = JSON.parse(await e.response.data.text())?.detail || msg; } catch {}
+      }
+      toast.error(msg);
+    } finally {
+      setDownloading(null);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <header className="px-6 py-4 border-b border-slate-200 bg-white shrink-0 flex items-center justify-between no-print">
@@ -26,8 +53,28 @@ export default function Report() {
           <p className="text-sm text-muted-foreground">Full status by building &amp; trade — with photo proof for the builder</p>
         </div>
         <div className="flex gap-2">
-          <a href={`${API}/reports/excel?project_id=${projectId}`}><Button variant="outline" data-testid="report-excel-btn"><FileSpreadsheet size={16} className="mr-2" /> Excel</Button></a>
-          <Button onClick={() => window.print()} data-testid="report-pdf-btn" className="bg-emerald-700 hover:bg-emerald-800 text-white"><Printer size={16} className="mr-2" /> Download / Print PDF</Button>
+          <Button
+            variant="outline"
+            data-testid="report-excel-btn"
+            disabled={downloading || !projectId}
+            onClick={() => downloadFile("excel", "progress-report.xlsx")}
+          >
+            {downloading === "progress-report.xlsx" ? <Loader2 size={16} className="mr-2 animate-spin" /> : <FileSpreadsheet size={16} className="mr-2" />}
+            Excel
+          </Button>
+          <Button
+            variant="outline"
+            data-testid="report-download-pdf-btn"
+            disabled={downloading || !projectId}
+            onClick={() => downloadFile("pdf", "progress-report.pdf")}
+            className="border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+          >
+            {downloading === "progress-report.pdf" ? <Loader2 size={16} className="mr-2 animate-spin" /> : <FileDown size={16} className="mr-2" />}
+            Download PDF
+          </Button>
+          <Button onClick={() => window.print()} data-testid="report-print-btn" className="bg-emerald-700 hover:bg-emerald-800 text-white">
+            <Printer size={16} className="mr-2" /> Print
+          </Button>
         </div>
       </header>
 

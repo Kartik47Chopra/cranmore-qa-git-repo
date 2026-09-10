@@ -7,9 +7,9 @@ import { AttachmentModal } from "@/components/AttachmentModal";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Check, Circle, Plus, X, Camera, Send, MoreHorizontal, MapPin, Upload, Loader2, Milestone, FileText, Eye } from "lucide-react";
+import { Check, Circle, Plus, X, Camera, Send, MoreHorizontal, MapPin, Upload, Loader2, Milestone, FileText, Eye, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useProject } from "@/context/ProjectContext";
 import { DocumentViewer } from "@/components/DocumentViewer";
@@ -42,22 +42,73 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
 
   const toggleStep = async (step) => {
     const next = step.status === "complete" ? "pending" : "complete";
+    const prevSteps = visi.steps.map((s) => ({ step_id: s.step_id, status: s.status }));
     try {
       const { data } = await api.patch(`/visis/${visi.id}/step`, { step_id: step.step_id, status: next });
       setVisi((v) => ({ ...v, ...data }));
       onChanged?.();
+      if (next === "complete") {
+        toast.success(`"${step.label}" completed`, {
+          action: {
+            label: "Undo",
+            onClick: async () => {
+              try {
+                for (const s of prevSteps) {
+                  if (s.status === "pending") await api.patch(`/visis/${visi.id}/step`, { step_id: s.step_id, status: "pending" });
+                }
+                load();
+                onChanged?.();
+              } catch { toast.error("Could not undo"); }
+            },
+          },
+        });
+      }
     } catch (e) {
       toast.error(e.response?.data?.detail || "Could not update step");
     }
   };
 
   const setOverride = async (status) => {
-    const comment = status ? window.prompt(`Comment required to set "${STATUS_META[status].label}":`) : "cleared";
-    if (status && !comment) return;
-    const { data } = await api.patch(`/visis/${visi.id}/status`, { override_status: status, comment });
+    const prev = visi.override_status;
+    const { data } = await api.patch(`/visis/${visi.id}/status`, { override_status: status });
     setVisi((v) => ({ ...v, ...data }));
     load();
     onChanged?.();
+    toast.success(status ? `Marked ${STATUS_META[status].label}` : "Status cleared", {
+      action: {
+        label: "Undo",
+        onClick: async () => {
+          try {
+            await api.patch(`/visis/${visi.id}/status`, { override_status: prev });
+            load();
+            onChanged?.();
+          } catch { toast.error("Could not undo"); }
+        },
+      },
+    });
+  };
+
+  const deleteVisi = async () => {
+    if (!window.confirm(`Delete Visi ${visi.code}? You can undo this right after.`)) return;
+    try {
+      await api.delete(`/visis/${visi.id}`);
+      onClose();
+      onChanged?.();
+      toast("Visi deleted", {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              await api.post(`/visis/${visi.id}/restore`);
+              toast.success("Visi restored");
+              onChanged?.();
+            } catch { toast.error("Could not restore"); }
+          },
+        },
+      });
+    } catch {
+      toast.error("Could not delete Visi");
+    }
   };
 
   const triggerUpload = (step, requirement) => {
@@ -116,7 +167,7 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
       <input type="file" ref={fileRef} onChange={onFile} accept="image/*" className="hidden" data-testid="visi-file-input" />
       <input type="file" ref={cameraRef} onChange={onFile} accept="image/*" capture="environment" className="hidden" data-testid="visi-camera-input" />
       <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-        <SheetContent className="w-full sm:max-w-4xl p-0 flex flex-col" data-testid="visi-modal">
+        <SheetContent showClose={false} className="w-full sm:max-w-4xl p-0 flex flex-col" data-testid="visi-modal">
           <SheetTitle className="sr-only">Visi detail</SheetTitle>
           {/* header */}
           <div className="flex items-center justify-between px-5 py-3 border-b bg-white shrink-0">
@@ -124,11 +175,28 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
               <StatusBadge status={visi.status} done={visi.progress_done} total={visi.progress_total} />
               <span className="font-mono text-sm font-semibold text-slate-700">{visi.code}</span>
               <span className="text-sm text-slate-500 truncate">{visi.template_name}</span>
+              {visi.door_id && (
+                <span className="hidden sm:inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700" data-testid="visi-door-id">
+                  Door <span className="font-mono">{visi.door_id}</span>
+                </span>
+              )}
+              {visi.skirting_type && (
+                <span
+                  className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full"
+                  style={visi.skirting_type === "Indoor skirting"
+                    ? { backgroundColor: "#DCFCE7", color: "#166534" }
+                    : { backgroundColor: "#DBEAFE", color: "#1D4ED8" }}
+                  data-testid="visi-skirting-type"
+                >
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: visi.skirting_type === "Indoor skirting" ? "#16A34A" : "#2563EB" }} />
+                  {visi.skirting_type}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" data-testid="visi-actions"><MoreHorizontal size={15} className="mr-1" /> Actions</Button>
+                  <Button variant="outline" size="sm" data-testid="visi-actions"><MoreHorizontal size={15} className="mr-1" /> <span className="hidden sm:inline">Actions</span></Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={() => setOverride("in_review")}>Set In Review</DropdownMenuItem>
@@ -136,6 +204,10 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
                   <DropdownMenuItem onClick={() => setOverride("cant_close")}>Set Can't Close</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setOverride("na")}>Set N/A</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setOverride(null)}>Clear override</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={deleteVisi} data-testid="visi-delete">
+                    <Trash2 size={14} className="mr-2" /> Delete Visi
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button variant="ghost" size="icon" onClick={onClose} data-testid="visi-close"><X size={16} /></Button>
@@ -186,15 +258,15 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
                   {visi.steps.map((s) => (
                     <div key={s.step_id} className="border border-slate-200 rounded-md p-3" data-testid={`step-${s.step_id}`}>
                       <div className="flex items-center gap-3">
-                        <button onClick={() => toggleStep(s)} data-testid={`step-toggle-${s.step_id}`} className={`h-5 w-5 rounded-full border flex items-center justify-center shrink-0 transition ${s.status === "complete" ? "bg-emerald-500 border-emerald-500" : "border-slate-300 hover:border-emerald-500"}`}>
-                          {s.status === "complete" && <Check size={13} className="text-white" />}
+                        <button onClick={() => toggleStep(s)} data-testid={`step-toggle-${s.step_id}`} className={`h-7 w-7 md:h-5 md:w-5 rounded-full border flex items-center justify-center shrink-0 transition ${s.status === "complete" ? "bg-emerald-500 border-emerald-500" : "border-slate-300 hover:border-emerald-500"}`}>
+                          {s.status === "complete" && <Check size={15} className="text-white" />}
                         </button>
-                        <span className={`flex-1 text-sm ${s.status === "complete" ? "text-slate-500 line-through" : "text-slate-800"}`}>{s.label}</span>
+                        <span className={`flex-1 text-[15px] md:text-sm ${s.status === "complete" ? "text-slate-500 line-through" : "text-slate-800"}`}>{s.label}</span>
                         {s.type === "task" && <span className="text-[10px] font-bold uppercase text-emerald-600 bg-emerald-50 rounded px-1.5 py-0.5">Task</span>}
-                        <button onClick={() => triggerCapture(s, null)} title="Snap photo onto this step" data-testid={`step-camera-${s.step_id}`} className="text-slate-400 hover:text-emerald-600 transition-colors">
-                          <Camera size={15} />
+                        <button onClick={() => triggerCapture(s, null)} title="Snap photo onto this step" data-testid={`step-camera-${s.step_id}`} className="p-1.5 -m-1.5 text-slate-400 hover:text-emerald-600 transition-colors">
+                          <Camera size={18} className="md:hidden" /><Camera size={15} className="hidden md:block" />
                         </button>
-                        <span className="text-xs text-slate-400">{companyName(s.assignee_company_id)}</span>
+                        <span className="text-xs md:text-xs text-slate-500 hidden sm:inline">{companyName(s.assignee_company_id)}</span>
                       </div>
 
                       {s.type === "task" && (
@@ -278,6 +350,21 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
                 </div>
               </section>
 
+              {/* details — shown on mobile/tablet where the side panel is hidden */}
+              <section className="lg:hidden" data-testid="visi-details-mobile">
+                <h3 className="font-display font-bold uppercase text-sm text-slate-700 mb-2">Details</h3>
+                <div className="border border-slate-200 rounded-md divide-y text-[15px]">
+                  <DetailRow label="Visi type" value={visi.visi_type} />
+                  <DetailRow label="Template" value={`${visi.template_name} · Rev ${visi.template_revision}`} />
+                  <DetailRow label="Assignee" value={companyName(visi.assignee_company_id)} />
+                  <DetailRow label="Reviewer" value={visi.reviewer_company_id ? companyName(visi.reviewer_company_id) : "–"} />
+                  <DetailRow label="Visible to" value={(visi.visible_to || []).map(companyName).join(", ") || "–"} />
+                  <DetailRow label="Created" value={`${new Date(visi.created_at).toLocaleDateString()} · ${visi.created_by}`} />
+                  {visi.closed_at && <DetailRow label="Closed" value={`${new Date(visi.closed_at).toLocaleDateString()} · ${visi.closed_by}`} />}
+                  <DetailRow label="Days open" value={String(visi.days_open)} />
+                </div>
+              </section>
+
               {/* activity */}
               <section>
                 <h3 className="font-display font-bold uppercase text-sm text-slate-700 mb-2">Activity</h3>
@@ -330,6 +417,15 @@ function Detail({ label, value }) {
     <div>
       <div className="text-[10px] font-bold uppercase text-slate-400">{label}</div>
       <div className="text-slate-700 mt-0.5">{value || "–"}</div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }) {
+  return (
+    <div className="flex justify-between gap-3 px-3 py-2.5">
+      <span className="text-[11px] font-bold uppercase text-slate-500 shrink-0 pt-0.5">{label}</span>
+      <span className="text-slate-800 text-right break-words">{value || "–"}</span>
     </div>
   );
 }

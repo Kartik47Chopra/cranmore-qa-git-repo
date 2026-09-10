@@ -105,7 +105,7 @@ export function CreateVisiModal({ open, onClose, projectId, defaultLocationId, l
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Visi type</Label>
               <Select value={visiType} onValueChange={setVisiType}>
@@ -123,7 +123,7 @@ export function CreateVisiModal({ open, onClose, projectId, defaultLocationId, l
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Assignee (trade)</Label>
               <Select value={assignee} onValueChange={setAssignee}>

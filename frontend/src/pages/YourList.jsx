@@ -33,6 +33,31 @@ export default function YourList() {
         <p className="text-sm text-muted-foreground">Visis assigned to your company · {visis.length} items</p>
       </header>
       <div className="flex-1 overflow-y-auto">
+        {/* Mobile: readable cards */}
+        <div className="md:hidden divide-y divide-slate-100">
+          {visis.map((v) => (
+            <button
+              key={v.id}
+              onClick={() => setOpenVisi(v.id)}
+              className="w-full text-left px-4 py-3.5 bg-white flex items-start gap-3 active:bg-slate-50"
+              data-testid={`yourlist-row-${v.id}`}
+            >
+              <div className="pt-0.5"><StatusBadge status={v.status} done={v.progress_done} total={v.progress_total} /></div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[15px] font-semibold text-slate-800 leading-snug">{v.template_name}</div>
+                <div className="text-[13px] text-slate-500 mt-0.5">
+                  <span className="font-mono">{v.code}</span>
+                  {v.door_id && <span className="ml-1.5 font-mono font-bold text-slate-700">· {v.door_id}</span>}
+                </div>
+                <div className="text-xs text-slate-400 mt-1">{locName(v.location_id)}</div>
+              </div>
+              <div className="shrink-0 text-xs text-slate-400 pt-0.5">{v.days_open}d open</div>
+            </button>
+          ))}
+          {visis.length === 0 && <div className="text-center text-slate-400 py-8">Nothing assigned to your company.</div>}
+        </div>
+        {/* Desktop: table */}
+        <div className="hidden md:block">
         <Table>
           <TableHeader className="sticky top-0 bg-slate-50 z-10">
             <TableRow>
@@ -48,7 +73,10 @@ export default function YourList() {
               <TableRow key={v.id} className="cursor-pointer" onClick={() => setOpenVisi(v.id)} data-testid={`yourlist-row-${v.id}`}>
                 <TableCell><StatusBadge status={v.status} done={v.progress_done} total={v.progress_total} /></TableCell>
                 <TableCell className="font-medium">{v.template_name}</TableCell>
-                <TableCell className="font-mono text-xs">{v.code}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  {v.code}
+                  {v.door_id && <div className="font-mono font-bold text-[11px] text-slate-600 mt-0.5">{v.door_id}</div>}
+                </TableCell>
                 <TableCell className="text-xs text-slate-500">{locName(v.location_id)}</TableCell>
                 <TableCell className="font-mono text-xs">{v.days_open}</TableCell>
               </TableRow>
@@ -56,6 +84,7 @@ export default function YourList() {
             {visis.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-slate-400 py-8">Nothing assigned to your company.</TableCell></TableRow>}
           </TableBody>
         </Table>
+        </div>
       </div>
       <VisiModal visiId={openVisi} open={!!openVisi} onClose={() => setOpenVisi(null)} onChanged={load} />
     </div>
