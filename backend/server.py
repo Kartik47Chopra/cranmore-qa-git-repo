@@ -1745,6 +1745,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve React build if present (for single-origin deploy)
+import pathlib
+_static = ROOT_DIR / "static"
+if _static.exists():
+    app.mount("/static", StaticFiles(directory=_static / "static"), name="static")
+    @app.get("/{full_path:path}")
+    async def _spa(full_path: str):
+        if full_path.startswith("api/"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404)
+        f = _static / full_path
+        if f.is_file():
+            return _FR(str(f))
+        return _FR(str(_static / "index.html"))
 
 @app.on_event("startup")
 async def startup():
