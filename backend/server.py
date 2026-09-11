@@ -1,5 +1,7 @@
 from dotenv import load_dotenv
 from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse as _FR
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
