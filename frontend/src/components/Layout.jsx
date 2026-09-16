@@ -89,30 +89,32 @@ export default function Layout() {
           </DropdownMenu>
         </div>
 
-        {/* Nav */}
-        <nav className="px-2 py-2 space-y-0.5">
-          {navItems.filter((n) => !n.adminOnly || user?.role === "admin").map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              data-testid={n.testid}
-              onClick={() => setDrawerOpen(false)}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive ? "bg-emerald-500 text-slate-900" : "text-slate-300 hover:bg-slate-800"
-                }`
-              }
-            >
-              <n.icon size={16} />
-              {n.label}
-            </NavLink>
-          ))}
-        </nav>
+        {/* Nav + Location tree — single scrollable area so everything is reachable on mobile */}
+        <div className="flex-1 overflow-y-auto sidebar-scroll">
+          <nav className="px-2 py-2 space-y-0.5">
+            {navItems.filter((n) => !n.adminOnly || user?.role === "admin").map((n) => (
+              <NavLink
+                key={n.to}
+                to={n.to}
+                data-testid={n.testid}
+                onClick={() => setDrawerOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                    isActive ? "bg-emerald-500 text-slate-900" : "text-slate-300 hover:bg-slate-800"
+                  }`
+                }
+              >
+                <n.icon size={16} />
+                {n.label}
+              </NavLink>
+            ))}
+          </nav>
 
-        {/* Location tree */}
-        <div className="flex-1 overflow-y-auto sidebar-scroll px-2 pb-4 mt-1">
-          <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Locations</div>
-          <LocationTree locations={locations} onNavigate={() => setDrawerOpen(false)} />
+          {/* Location tree */}
+          <div className="px-2 pb-4 mt-1">
+            <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Locations</div>
+            <LocationTree locations={locations} onNavigate={() => setDrawerOpen(false)} />
+          </div>
         </div>
 
         {/* User */}

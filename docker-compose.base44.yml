@@ -11,17 +11,15 @@ services:
       retries: 10
 
   backend:
-    build: ./backend
+    image: python:3.12-slim
     restart: unless-stopped
+    working_dir: /app/backend
     volumes:
-      - ./backend:/app
-    ports:
-      - "8001:8001"
+      - ./backend:/app/backend
     environment:
       - MONGO_URL=mongodb://mongo:27017
       - DB_NAME=cranmore_qa
       - JWT_SECRET=base44-dev-jwt-secret-9f2a7c4e
-      - CORS_ORIGINS=*
       - FRONTEND_URL=https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
       - ADMIN_EMAIL=factory@maxxdoors.com.au
       - ADMIN_PASSWORD=Cranmore2026!
@@ -31,13 +29,17 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+    ports:
+      - "8001:8001"
+    command: sh -c "pip install --no-cache-dir -r requirements.base44.txt && uvicorn server:app --host 0.0.0.0 --port 8001 --reload --reload-dir /app/backend"
 
   frontend:
-    build: ./frontend
+    image: node:22
     restart: unless-stopped
+    working_dir: /app/frontend
     volumes:
-      - ./frontend:/app
-      - /app/node_modules
+      - ./frontend:/app/frontend
+      - frontend_node_modules:/app/frontend/node_modules
     ports:
       - "3000:3000"
     environment:
@@ -46,8 +48,10 @@ services:
       - PORT=3000
       - CHOKIDAR_USEPOLLING=true
       - DANGEROUSLY_DISABLE_HOST_CHECK=true
+    command: sh -c "corepack enable && corepack prepare yarn@1.22.22 --activate && yarn install --frozen-lockfile && yarn start"
     depends_on:
       - backend
 
 volumes:
   mongo_data:
+  frontend_node_modules:
