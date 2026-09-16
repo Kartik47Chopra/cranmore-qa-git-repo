@@ -18,7 +18,7 @@ import UserManagement from "@/pages/UserManagement";
 import Activity from "@/pages/Activity";
 import AssignTasks from "@/pages/AssignTasks";
 import MyTasks from "@/pages/MyTasks";
-import GitHubSync from "@/pages/GitHubSync";
+
 import { Loader2 } from "lucide-react";
 
 function Protected({ children }) {
@@ -59,7 +59,6 @@ export default function App() {
             <Route path="/activity" element={<Activity />} />
             <Route path="/assign-tasks" element={<AssignTasks />} />
             <Route path="/my-tasks" element={<MyTasks />} />
-            <Route path="/github" element={<GitHubSync />} />
             <Route path="/setup" element={<ProjectSetup />} />
             <Route path="/location/:locationId" element={<LocationDetail />} />
           </Route>

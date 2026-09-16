@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, ListChecks, Grid3x3, Settings, Milestone, FileSpreadsheet, ChevronDown, LogOut, Clover, Building, FileText, FileBarChart2, UserCog, Menu, X, History, ClipboardCheck, CalendarCheck, Github } from "lucide-react";
+import { LayoutDashboard, ListChecks, Grid3x3, Settings, Milestone, FileSpreadsheet, ChevronDown, LogOut, Building, FileText, FileBarChart2, UserCog, Menu, X, History, ClipboardCheck, CalendarCheck } from "lucide-react";
+import TreeLogo from "@/components/TreeLogo";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useProject } from "@/context/ProjectContext";
@@ -20,7 +21,6 @@ const navItems = [
   { to: "/milestones", label: "Milestone Tracker", icon: Milestone, testid: "nav-milestones" },
   { to: "/activity", label: "Activity", icon: History, testid: "nav-activity" },
   { to: "/report", label: "Progress Report", icon: FileBarChart2, testid: "nav-report" },
-  { to: "/github", label: "GitHub", icon: Github, testid: "nav-github" },
   { to: "/setup", label: "Project Setup", icon: Settings, testid: "nav-setup" },
   { to: "/users", label: "User Management", icon: UserCog, testid: "nav-users", adminOnly: true },
 ];
@@ -52,12 +52,12 @@ export default function Layout() {
       >
         <div className="px-4 py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-700 flex items-center justify-center shadow-inner">
-              <Clover size={20} className="text-white" />
+            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-emerald-700 to-emerald-900 flex items-center justify-center shadow-inner shrink-0">
+              <TreeLogo size={22} />
             </div>
             <div>
               <div className="font-display font-bold text-xl leading-none tracking-wide text-white">Cranmore</div>
-              <div className="text-[10px] uppercase tracking-[0.28em] text-emerald-400">Carpenters QA</div>
+              <div className="text-[10px] uppercase tracking-[0.28em] text-emerald-400">QA</div>
             </div>
           </div>
           <button className="md:hidden p-1.5 rounded-md hover:bg-slate-800 text-slate-400" onClick={() => setDrawerOpen(false)} aria-label="Close menu">
