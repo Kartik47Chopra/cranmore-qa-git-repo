@@ -139,7 +139,16 @@ def _local_path(path: str) -> Path:
     return LOCAL_UPLOAD_DIR / safe
 
 
+def _has_emergent_key() -> bool:
+    return bool(EMERGENT_KEY and EMERGENT_KEY != "placeholder-not-set")
+
+
 def put_object(path: str, data: bytes, content_type: str) -> dict:
+    if not _has_emergent_key():
+        local = _local_path(path)
+        local.parent.mkdir(parents=True, exist_ok=True)
+        local.write_bytes(data)
+        return {"path": path, "size": len(data)}
     try:
         key = init_storage()
         resp = requests.put(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key, "Content-Type": content_type}, data=data, timeout=120)
@@ -157,6 +166,11 @@ def put_object(path: str, data: bytes, content_type: str) -> dict:
 
 
 def get_object(path: str):
+    if not _has_emergent_key():
+        local = _local_path(path)
+        if local.exists():
+            return local.read_bytes(), "application/octet-stream"
+        raise FileNotFoundError(f"Object not found: {path}")
     try:
         key = init_storage()
         resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
