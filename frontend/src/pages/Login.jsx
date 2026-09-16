@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Clover, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import TreeLogo from "@/components/TreeLogo";
 import { useAuth } from "@/context/AuthContext";
 import { formatApiErrorDetail } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -38,12 +39,12 @@ export default function Login() {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#0F172A] via-[#0F172A]/70 to-transparent" />
         <div className="relative flex items-center gap-3">
-          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-700 flex items-center justify-center shadow-lg">
-            <Clover size={26} className="text-white" />
+          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-700 to-emerald-900 flex items-center justify-center shadow-lg shrink-0">
+            <TreeLogo size={28} />
           </div>
           <div>
             <div className="font-display font-bold text-3xl tracking-wide text-white leading-none">Cranmore</div>
-            <div className="text-xs uppercase tracking-[0.3em] text-emerald-400">Carpenters QA</div>
+            <div className="text-xs uppercase tracking-[0.3em] text-emerald-400">QA</div>
           </div>
         </div>
         <div className="relative">
