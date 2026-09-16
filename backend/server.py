@@ -105,6 +105,8 @@ storage_key = None
 DATA_DIR = ROOT_DIR / "data" / "summerset"
 THUMB_DIR = ROOT_DIR / "data" / "thumbs"
 THUMB_DIR.mkdir(parents=True, exist_ok=True)
+LOCAL_UPLOAD_DIR = ROOT_DIR / "data" / "uploads"
+LOCAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def verify_token(request: Request, auth: Optional[str] = None):
@@ -131,24 +133,44 @@ def init_storage(force: bool = False):
     return storage_key
 
 
+def _local_path(path: str) -> Path:
+    """Map a storage path to a local filesystem path (sanitised)."""
+    safe = path.replace("..", "").lstrip("/")
+    return LOCAL_UPLOAD_DIR / safe
+
+
 def put_object(path: str, data: bytes, content_type: str) -> dict:
-    key = init_storage()
-    resp = requests.put(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key, "Content-Type": content_type}, data=data, timeout=120)
-    if resp.status_code == 404:
-        key = init_storage(force=True)
+    try:
+        key = init_storage()
         resp = requests.put(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key, "Content-Type": content_type}, data=data, timeout=120)
-    resp.raise_for_status()
-    return resp.json()
+        if resp.status_code == 404:
+            key = init_storage(force=True)
+            resp = requests.put(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key, "Content-Type": content_type}, data=data, timeout=120)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        # Fall back to local file storage
+        local = _local_path(path)
+        local.parent.mkdir(parents=True, exist_ok=True)
+        local.write_bytes(data)
+        return {"path": path, "size": len(data)}
 
 
 def get_object(path: str):
-    key = init_storage()
-    resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
-    if resp.status_code == 404:
-        key = init_storage(force=True)
+    try:
+        key = init_storage()
         resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
-    resp.raise_for_status()
-    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+        if resp.status_code == 404:
+            key = init_storage(force=True)
+            resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+        resp.raise_for_status()
+        return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+    except Exception:
+        # Fall back to local file storage
+        local = _local_path(path)
+        if local.exists():
+            return local.read_bytes(), "application/octet-stream"
+        raise FileNotFoundError(f"Object not found: {path}")
 
 
 def extract_exif_gps(data: bytes):
@@ -680,7 +702,10 @@ async def download_file(path: str, request: Request, auth: str = Query(None)):
     record = await db.attachments.find_one({"storage_path": path})
     if not record:
         raise HTTPException(status_code=404, detail="File not found")
-    data, ct = get_object(path)
+    try:
+        data, ct = get_object(path)
+    except Exception:
+        raise HTTPException(status_code=404, detail="File not found in storage")
     return Response(content=data, media_type=record.get("content_type") or ct)
 
 

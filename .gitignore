@@ -21,3 +21,6 @@ frontend/.env
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Local file uploads (runtime data, not source)
+backend/data/uploads/

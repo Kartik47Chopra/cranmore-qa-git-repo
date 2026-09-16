@@ -15,7 +15,7 @@ docker compose -f docker-compose.base44.yml up -d
 ## Key details
 - **Seed data**: `seed_data.py` runs on FastAPI startup. Creates admin user (`factory@maxxdoors.com.au` / `Cranmore2026!`), 5 companies, 1 project (Summerset Oakleigh South), templates, locations, ~137 documents from `backend/data/summerset/`. Seeded documents are served from local files (not external storage).
 - **Auth**: JWT in httpOnly cookies (`Secure; SameSite=None`). CORS allows the frontend public URL via `FRONTEND_URL` env var. Bearer token fallback also supported.
-- **External storage**: `EMERGENT_LLM_KEY` is needed for photo/attachment uploads (Emergent object storage proxy). Storage init is caught in try/except — the app boots and seeded documents work without it, but new file uploads will fail until the key is set.
+- **External storage**: `EMERGENT_LLM_KEY` is needed for photo/attachment uploads (Emergent object storage proxy). `put_object`/`get_object` now fall back to local file storage (`backend/data/uploads/`) when the Emergent key is missing/invalid, so uploads and PDF image embedding work regardless. The local uploads dir is gitignored.
 - **emergentintegrations** PyPI package is excluded from the backend Dockerfile (private package, not imported by the app).
 - **craco.config.js** modified: added `allowedHosts: "all"` to `makeDevServerV5Compatible` so the preview proxy host is accepted.
 
