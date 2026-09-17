@@ -15,6 +15,7 @@ WORKDIR /app
 COPY backend/requirements.txt .
 RUN sed '/^emergentintegrations/d' requirements.txt > /tmp/req.txt && pip install --no-cache-dir -r /tmp/req.txt
 COPY backend/ ./
+COPY backend/data/ /opt/seed_data/
 COPY --from=fe /fe/build ./static
 EXPOSE 10000
 CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port $PORT"]

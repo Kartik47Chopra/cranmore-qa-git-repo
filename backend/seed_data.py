@@ -16,6 +16,10 @@ from typing import Optional, Callable
 from bson import Binary
 
 DATA_DIR = Path(__file__).parent / "data" / "summerset"
+# Docker-image copy, not hidden by Render's persistent disk mount at /app/data
+_SEED_DATA_DIR = Path("/opt/seed_data/summerset")
+if not DATA_DIR.exists() and _SEED_DATA_DIR.exists():
+    DATA_DIR = _SEED_DATA_DIR
 
 FLOOR_PATTERNS = [
     ("Basement - Part 1", "Basement Part 1"),

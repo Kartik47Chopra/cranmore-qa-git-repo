@@ -103,16 +103,27 @@ EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 APP_NAME = "cranmore-qa"
 storage_key = None
 DATA_DIR = ROOT_DIR / "data" / "summerset"
+# Docker-image copy of seed data, not hidden by Render's persistent disk mount at /app/data
+SEED_DATA_DIR = Path("/opt/seed_data/summerset")
 THUMB_DIR = ROOT_DIR / "data" / "thumbs"
 THUMB_DIR.mkdir(parents=True, exist_ok=True)
 LOCAL_UPLOAD_DIR = ROOT_DIR / "data" / "uploads"
 LOCAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def find_data_file(rel_path: str) -> Path | None:
+    """Find a seed data file, checking the persistent-disk path first, then the Docker-image copy."""
+    for base in (DATA_DIR, SEED_DATA_DIR):
+        fp = base / rel_path
+        if fp.exists():
+            return fp
+    return None
+
+
 async def get_doc_bytes(doc: dict) -> bytes | None:
     """Return file bytes for a document, from disk or MongoDB fallback."""
-    fp = DATA_DIR / doc["rel_path"]
-    if fp.exists():
+    fp = find_data_file(doc["rel_path"])
+    if fp:
         return fp.read_bytes()
     # Fallback: file content stored in MongoDB (survives persistent-disk mounts)
     fd = doc.get("file_data")
@@ -847,8 +858,8 @@ async def get_document_file(doc_id: str, request: Request, download: bool = Quer
     d = await db.documents.find_one({"id": doc_id})
     if not d:
         raise HTTPException(status_code=404, detail="Document not found")
-    fp = DATA_DIR / d["rel_path"]
-    if fp.exists():
+    fp = find_data_file(d["rel_path"])
+    if fp:
         ct = d.get("content_type", "application/pdf")
         if download:
             return FileResponse(str(fp), media_type=ct, filename=d["filename"])
@@ -872,8 +883,8 @@ async def document_thumb(doc_id: str, request: Request, auth: str = Query(None))
     d = await db.documents.find_one({"id": doc_id})
     if not d:
         raise HTTPException(status_code=404, detail="Document not found")
-    src = DATA_DIR / d["rel_path"]
-    on_disk = src.exists()
+    src = find_data_file(d["rel_path"])
+    on_disk = src is not None
     if (d.get("content_type") or "").startswith("image"):
         if on_disk:
             return FileResponse(str(src), media_type=d["content_type"])
@@ -1717,8 +1728,8 @@ async def document_page(doc_id: str, request: Request, n: int = Query(0), auth: 
     d = await db.documents.find_one({"id": doc_id})
     if not d:
         raise HTTPException(status_code=404, detail="Document not found")
-    src = DATA_DIR / d["rel_path"]
-    on_disk = src.exists()
+    src = find_data_file(d["rel_path"])
+    on_disk = src is not None
     if (d.get("content_type") or "").startswith("image"):
         if on_disk:
             return FileResponse(str(src), media_type=d["content_type"])
@@ -1759,8 +1770,8 @@ async def document_page_count(doc_id: str, request: Request, auth: str = Query(N
     d = await db.documents.find_one({"id": doc_id})
     if not d:
         raise HTTPException(status_code=404, detail="Document not found")
-    src = DATA_DIR / d["rel_path"]
-    on_disk = src.exists()
+    src = find_data_file(d["rel_path"])
+    on_disk = src is not None
     if (d.get("content_type") or "").startswith("image"):
         return {"pages": 1}
     cache = THUMB_DIR / f"{doc_id}_count.txt"
@@ -1861,12 +1872,11 @@ async def startup():
     missing = await db.documents.count_documents({"file_data": {"$exists": False}})
     if missing > 0:
         logger.info(f"Backfilling file_data for {missing} documents...")
-        from seed_data import DATA_DIR as SEED_DIR
         cursor = db.documents.find({"file_data": {"$exists": False}})
         count = 0
         async for d in cursor:
-            fp = SEED_DIR / d["rel_path"]
-            if fp.exists():
+            fp = find_data_file(d["rel_path"])
+            if fp:
                 await db.documents.update_one(
                     {"id": d["id"]},
                     {"$set": {"file_data": Binary(fp.read_bytes())}}
