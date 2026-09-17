@@ -266,7 +266,6 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
                         <button onClick={() => triggerCapture(s, null)} title="Snap photo onto this step" data-testid={`step-camera-${s.step_id}`} className="p-1.5 -m-1.5 text-slate-400 hover:text-emerald-600 transition-colors">
                           <Camera size={18} className="md:hidden" /><Camera size={15} className="hidden md:block" />
                         </button>
-                        <span className="text-xs md:text-xs text-slate-500 hidden sm:inline">{companyName(s.assignee_company_id)}</span>
                       </div>
 
                       {s.type === "task" && (

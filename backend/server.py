@@ -20,7 +20,7 @@ from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depend
 from starlette.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from motor.motor_asyncio import AsyncIOMotorClient
-from bson import ObjectId
+from bson import ObjectId, Binary
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -107,6 +107,18 @@ THUMB_DIR = ROOT_DIR / "data" / "thumbs"
 THUMB_DIR.mkdir(parents=True, exist_ok=True)
 LOCAL_UPLOAD_DIR = ROOT_DIR / "data" / "uploads"
 LOCAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+async def get_doc_bytes(doc: dict) -> bytes | None:
+    """Return file bytes for a document, from disk or MongoDB fallback."""
+    fp = DATA_DIR / doc["rel_path"]
+    if fp.exists():
+        return fp.read_bytes()
+    # Fallback: file content stored in MongoDB (survives persistent-disk mounts)
+    fd = doc.get("file_data")
+    if fd is not None:
+        return bytes(fd)
+    return None
 
 
 def verify_token(request: Request, auth: Optional[str] = None):
@@ -835,13 +847,22 @@ async def get_document_file(doc_id: str, request: Request, download: bool = Quer
     if not d:
         raise HTTPException(status_code=404, detail="Document not found")
     fp = DATA_DIR / d["rel_path"]
-    if not fp.exists():
-        raise HTTPException(status_code=404, detail="File missing on disk")
-    # Serve inline by default so browsers render the file in the viewer/iframe.
-    # `?download=1` switches to an attachment so "Download" actually downloads.
-    if download:
-        return FileResponse(str(fp), media_type=d.get("content_type", "application/pdf"), filename=d["filename"])
-    return FileResponse(str(fp), media_type=d.get("content_type", "application/pdf"))
+    if fp.exists():
+        ct = d.get("content_type", "application/pdf")
+        if download:
+            return FileResponse(str(fp), media_type=ct, filename=d["filename"])
+        return FileResponse(str(fp), media_type=ct)
+    # Fallback: serve from MongoDB binary data
+    fd = d.get("file_data")
+    if fd is not None:
+        ct = d.get("content_type", "application/pdf")
+        headers = {}
+        if download:
+            headers["Content-Disposition"] = f'attachment; filename="{d["filename"]}"'
+        else:
+            headers["Content-Disposition"] = "inline"
+        return Response(content=bytes(fd), media_type=ct, headers=headers)
+    raise HTTPException(status_code=404, detail="File missing on disk")
 
 
 @api_router.get("/documents/{doc_id}/thumb")
@@ -851,20 +872,33 @@ async def document_thumb(doc_id: str, request: Request, auth: str = Query(None))
     if not d:
         raise HTTPException(status_code=404, detail="Document not found")
     src = DATA_DIR / d["rel_path"]
-    if not src.exists():
-        raise HTTPException(status_code=404, detail="File missing on disk")
+    on_disk = src.exists()
     if (d.get("content_type") or "").startswith("image"):
-        return FileResponse(str(src), media_type=d["content_type"])
+        if on_disk:
+            return FileResponse(str(src), media_type=d["content_type"])
+        fd = d.get("file_data")
+        if fd is not None:
+            return Response(content=bytes(fd), media_type=d["content_type"])
+        raise HTTPException(status_code=404, detail="File missing on disk")
     out = THUMB_DIR / f"{doc_id}.png"
     if not out.exists():
         try:
             import fitz
-            doc = fitz.open(str(src))
+            import io
+            if on_disk:
+                doc = fitz.open(str(src))
+            else:
+                fd = d.get("file_data")
+                if fd is None:
+                    raise HTTPException(status_code=404, detail="File missing on disk")
+                doc = fitz.open(stream=bytes(fd), filetype="pdf")
             page = doc.load_page(0)
             zoom = min(2.0, max(0.2, 520.0 / max(1.0, page.rect.width)))
             pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
             pix.save(str(out))
             doc.close()
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"thumb failed for {doc_id}: {e}")
             raise HTTPException(status_code=422, detail="Thumbnail generation failed")
@@ -1683,15 +1717,26 @@ async def document_page(doc_id: str, request: Request, n: int = Query(0), auth: 
     if not d:
         raise HTTPException(status_code=404, detail="Document not found")
     src = DATA_DIR / d["rel_path"]
-    if not src.exists():
-        raise HTTPException(status_code=404, detail="File missing")
+    on_disk = src.exists()
     if (d.get("content_type") or "").startswith("image"):
-        return FileResponse(str(src), media_type=d["content_type"])
+        if on_disk:
+            return FileResponse(str(src), media_type=d["content_type"])
+        fd = d.get("file_data")
+        if fd is not None:
+            return Response(content=bytes(fd), media_type=d["content_type"])
+        raise HTTPException(status_code=404, detail="File missing")
     out = THUMB_DIR / (f"{doc_id}_page.png" if n <= 0 else f"{doc_id}_p{n}.png")
     if not out.exists():
         try:
             import fitz
-            doc = fitz.open(str(src))
+            import io
+            if on_disk:
+                doc = fitz.open(str(src))
+            else:
+                fd = d.get("file_data")
+                if fd is None:
+                    raise HTTPException(status_code=404, detail="File missing")
+                doc = fitz.open(stream=bytes(fd), filetype="pdf")
             if n < 0 or n >= doc.page_count:
                 doc.close()
                 raise HTTPException(status_code=404, detail="Page out of range")
@@ -1714,8 +1759,7 @@ async def document_page_count(doc_id: str, request: Request, auth: str = Query(N
     if not d:
         raise HTTPException(status_code=404, detail="Document not found")
     src = DATA_DIR / d["rel_path"]
-    if not src.exists():
-        raise HTTPException(status_code=404, detail="File missing")
+    on_disk = src.exists()
     if (d.get("content_type") or "").startswith("image"):
         return {"pages": 1}
     cache = THUMB_DIR / f"{doc_id}_count.txt"
@@ -1723,7 +1767,13 @@ async def document_page_count(doc_id: str, request: Request, auth: str = Query(N
         return {"pages": int(cache.read_text() or 1)}
     try:
         import fitz
-        doc = fitz.open(str(src))
+        if on_disk:
+            doc = fitz.open(str(src))
+        else:
+            fd = d.get("file_data")
+            if fd is None:
+                raise HTTPException(status_code=404, detail="File missing")
+            doc = fitz.open(stream=bytes(fd), filetype="pdf")
         n = doc.page_count
         doc.close()
         cache.write_text(str(n))
@@ -1805,6 +1855,23 @@ async def startup():
     await db.login_attempts.create_index("identifier")
     from seed_data import seed_all
     await seed_all(db, hash_password)
+    # Backfill file_data into MongoDB for existing documents missing it
+    from bson import Binary
+    missing = await db.documents.count_documents({"file_data": {"$exists": False}})
+    if missing > 0:
+        logger.info(f"Backfilling file_data for {missing} documents...")
+        from seed_data import DATA_DIR as SEED_DIR
+        cursor = db.documents.find({"file_data": {"$exists": False}})
+        count = 0
+        async for d in cursor:
+            fp = SEED_DIR / d["rel_path"]
+            if fp.exists():
+                await db.documents.update_one(
+                    {"id": d["id"]},
+                    {"$set": {"file_data": Binary(fp.read_bytes())}}
+                )
+                count += 1
+        logger.info(f"Backfilled {count} documents with file_data")
 
 
 @app.on_event("shutdown")

@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Callable
+from bson import Binary
 
 DATA_DIR = Path(__file__).parent / "data" / "summerset"
 
@@ -471,10 +472,12 @@ async def seed_all(db, hash_password: Callable[[str], str]) -> None:
         uploader = "Bowens" if "Bowens" in p.name else ("Criterion Joinery" if "Criterion" in p.name else "Cranmore Carpenters")
         content_type = "image/png" if meta["ext"] == "png" else "application/pdf"
         loc_id = floor_node(building, floor) if (floor and building != "General") else building_node(building)
+        file_data = p.read_bytes()
         documents.append({"id": str(uuid.uuid4()), "project_id": project_id, "discipline": discipline, "building": building,
                           "category": category, "floor": floor, "drawing_no": meta["drawing_no"], "revision": meta["revision"],
                           "title": meta["title"], "filename": p.name, "rel_path": rel.as_posix(), "content_type": content_type,
-                          "size": p.stat().st_size, "location_id": loc_id, "uploaded_by_company": comps.get(uploader, owner_id), "uploaded_at": now_iso()})
+                          "size": p.stat().st_size, "location_id": loc_id, "uploaded_by_company": comps.get(uploader, owner_id), "uploaded_at": now_iso(),
+                          "file_data": Binary(file_data)})
 
     # ---- RACF rooms (every real room off the GA plans, all floors) + ILA apartments + RACF fixtures zone
     room_nodes = []  # (loc_id, floor, room_name, keywords, is_wet)
