@@ -243,6 +243,7 @@ def now_iso():
 def clean(doc: dict) -> dict:
     doc = dict(doc)
     doc.pop("_id", None)
+    doc.pop("file_data", None)  # binary field — not JSON-serialisable, served via dedicated endpoints
     return doc
 
 
