@@ -238,12 +238,18 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
                   </div>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  {(visi.attachments || []).map((a) => (
-                    <button key={a.id} onClick={() => setActiveAtt(a)} data-testid={`att-thumb-${a.id}`} className="relative h-20 w-20 rounded-md overflow-hidden border border-slate-200 hover:ring-2 ring-emerald-400 transition">
-                      <img src={fileUrl(a.storage_path)} alt="" className="h-full w-full object-cover" />
-                      {a.lat != null && <MapPin size={12} className="absolute bottom-1 right-1 text-white drop-shadow" />}
-                    </button>
-                  ))}
+                  {(visi.attachments || []).map((a) => {
+                    const sLabel = a.step_id ? visi.steps.find((s) => s.step_id === a.step_id)?.label : null;
+                    return (
+                      <button key={a.id} onClick={() => setActiveAtt(a)} data-testid={`att-thumb-${a.id}`} className="relative h-20 w-20 rounded-md overflow-hidden border border-slate-200 hover:ring-2 ring-emerald-400 transition group">
+                        <img src={fileUrl(a.storage_path)} alt="" className="h-full w-full object-cover" />
+                        {a.lat != null && <MapPin size={12} className="absolute bottom-1 right-1 text-white drop-shadow" />}
+                        {sLabel && (
+                          <span className="absolute top-0 left-0 right-0 bg-black/55 text-white text-[8px] font-semibold leading-tight px-1 py-0.5 truncate text-left" title={sLabel}>{sLabel}</span>
+                        )}
+                      </button>
+                    );
+                  })}
                   {(!visi.attachments || visi.attachments.length === 0) && <div className="text-xs text-slate-400">No attachments yet.</div>}
                 </div>
               </section>
@@ -405,7 +411,14 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
           </div>
         </SheetContent>
       </Sheet>
-      <AttachmentModal attachment={activeAtt} open={!!activeAtt} onClose={() => setActiveAtt(null)} onSaved={() => load()} />
+      <AttachmentModal
+        attachment={activeAtt}
+        open={!!activeAtt}
+        onClose={() => setActiveAtt(null)}
+        onSaved={() => load()}
+        onDeleted={() => { load(); onChanged?.(); toast.success("Attachment deleted"); }}
+        stepLabel={activeAtt?.step_id ? visi.steps.find((s) => s.step_id === activeAtt.step_id)?.label : null}
+      />
       <DocumentViewer doc={activeDoc} open={!!activeDoc} onClose={() => setActiveDoc(null)} />
     </>
   );

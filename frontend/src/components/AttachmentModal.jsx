@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { api, fileUrl } from "@/lib/api";
-import { ZoomIn, ZoomOut, RotateCw, Maximize, X, MapPin, Link2, Download } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCw, Maximize, X, MapPin, Link2, Download, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
-export function AttachmentModal({ attachment, open, onClose, onSaved }) {
+export function AttachmentModal({ attachment, open, onClose, onSaved, onDeleted, stepLabel }) {
   const [zoom, setZoom] = useState(1);
   const [rot, setRot] = useState(0);
   const [title, setTitle] = useState("");
@@ -28,6 +28,17 @@ export function AttachmentModal({ attachment, open, onClose, onSaved }) {
   const save = async () => {
     const { data } = await api.patch(`/attachments/${attachment.id}`, { title, description: desc });
     onSaved?.(data);
+  };
+
+  const del = async () => {
+    if (!window.confirm("Delete this attachment? This cannot be undone.")) return;
+    try {
+      await api.delete(`/attachments/${attachment.id}`);
+      onDeleted?.(attachment.id);
+      onClose?.();
+    } catch {
+      /* toast handled by parent if needed */
+    }
   };
 
   return (
@@ -54,6 +65,7 @@ export function AttachmentModal({ attachment, open, onClose, onSaved }) {
               <span className="font-display font-bold uppercase text-sm">Attachment</span>
               <div className="flex gap-1">
                 <a href={`${src}?download=1`} download><Button size="icon" variant="ghost" className="h-7 w-7"><Download size={15} /></Button></a>
+                <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={del} data-testid="att-delete"><Trash2 size={15} /></Button>
                 <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onClose} data-testid="att-close"><X size={15} /></Button>
               </div>
             </div>
@@ -92,7 +104,7 @@ export function AttachmentModal({ attachment, open, onClose, onSaved }) {
 
               <div className="pt-2 border-t">
                 <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase text-slate-500 mb-1.5"><Link2 size={13} /> Linked to</div>
-                <div className="text-xs text-slate-600 bg-slate-50 border rounded-md px-2.5 py-2">Evidence for this Visi checklist step</div>
+                <div className="text-xs text-slate-600 bg-slate-50 border rounded-md px-2.5 py-2">{stepLabel ? `Checklist step: ${stepLabel}` : "General attachment (not linked to a specific step)"}</div>
               </div>
             </div>
           </div>

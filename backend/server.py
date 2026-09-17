@@ -718,7 +718,22 @@ async def update_attachment(att_id: str, body: dict, user: dict = Depends(get_cu
 
 @api_router.delete("/attachments/{att_id}")
 async def delete_attachment(att_id: str, user: dict = Depends(get_current_user)):
+    att = await db.attachments.find_one({"id": att_id})
     await db.attachments.update_one({"id": att_id}, {"$set": {"is_deleted": True}})
+    # Clear the requirement link so deleted evidence no longer counts as fulfilled
+    if att and att.get("visi_id") and att.get("step_id") and att.get("requirement_id"):
+        v = await db.visis.find_one({"id": att["visi_id"]})
+        if v:
+            changed = False
+            for s in v.get("steps", []):
+                if s.get("step_id") == att["step_id"]:
+                    for req in s.get("requirements", []):
+                        if req.get("id") == att["requirement_id"] and req.get("attachment_id") == att_id:
+                            req["attachment_id"] = None
+                            changed = True
+            if changed:
+                await db.visis.update_one({"id": att["visi_id"]}, {"$set": {"steps": v["steps"], "last_updated": now_iso()}})
+    await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": att.get("visi_id") if att else None, "user": user["name"], "text": "deleted an attachment", "type": "attachment", "created_at": now_iso()})
     return {"ok": True}
 
 
