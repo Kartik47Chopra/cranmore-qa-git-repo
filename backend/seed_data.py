@@ -40,8 +40,11 @@ TEMPLATES = {
         "steps": [("Area ready + accessible", "inspection"), ("Installed, mitred & fixed with picture proof", "task"), ("QA sign-off", "inspection")]},
     "Sanitary": {"discipline": "Services", "stage": "Fit-off", "system": "Hydraulic / Sanitary", "trade": "Summerset Plumbing", "prefix": "SN",
         "steps": [("Noggins marked with photo evidence", "task"), ("Fixtures installed with photo proof of completed fixtures", "task"), ("QA sign-off", "inspection")]},
-    "Door": {"discipline": "Architectural", "stage": "Fit-off", "system": "Doors & Hardware", "trade": "Cranmore Carpenters", "prefix": "DR", "display_name": "Entry door",
+    "Door": {"discipline": "Architectural", "stage": "Fit-off", "system": "Doors & Hardware", "trade": "Cranmore Carpenters", "prefix": "DR",
         "steps": [("Frame fitted", "inspection"), ("Door margins", "inspection"), ("Hardware fitted", "inspection"),
+                  ("Closer", "inspection"), ("Seals + tags", "inspection"), ("QA sign-off", "inspection")]},
+    "Entry door": {"discipline": "Architectural", "stage": "Fit-off", "system": "Doors & Hardware", "trade": "Cranmore Carpenters", "prefix": "ED",
+        "steps": [("Entry door frame fitted", "inspection"), ("Entry door margins", "inspection"), ("Hardware fitted", "inspection"),
                   ("Closer", "inspection"), ("Seals + tags", "inspection"), ("QA sign-off", "inspection")]},
     "Miscellaneous": {"discipline": "Architectural", "stage": "Fit-off", "system": "Fixtures & Fittings", "trade": "Fitout & Fixtures Co", "prefix": "MI",
         "steps": [("Location set-out confirmed", "inspection"), ("Backing / bracket / noggin installed", "inspection"), ("Item mounted & secured", "inspection"),
@@ -642,10 +645,11 @@ async def seed_all(db, hash_password: Callable[[str], str], force: bool = False)
         type_plan = match_docs("Skirting", "ILA", [f"Apartment Type {typ} Plan"])
         floor_name = ILA_LEVELS[lvl_idx]
         ga_docs = [d["id"] for d in documents if d["discipline"] in ("Skirting", "Sanitary") and d["building"] == "ILA" and d.get("floor") == floor_name]
-        # Apartment-level: Entry Door + Skirting + Sanitary
+        # Apartment-level: Door + Skirting + Sanitary + Entry door (separate visi)
         make_visi("Door", aid, type_plan + ila_door_schedules)
         make_visi("Skirting", aid, type_plan + ga_docs or match_docs("Skirting", "ILA", ["Apartment"]))
         make_visi("Sanitary", aid, type_plan + ga_docs or match_docs("Sanitary", "ILA", None))
+        make_visi("Entry door", aid, type_plan + ila_door_schedules)
         for (rid, rname, active) in apt_rooms[aid]:
             if not active:
                 continue
