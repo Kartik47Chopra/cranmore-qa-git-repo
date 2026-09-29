@@ -15,6 +15,10 @@ from datetime import datetime, timezone
 from typing import Optional, Callable
 from bson import Binary
 
+# Bump this when seed data changes to trigger an automatic re-seed on all
+# environments (including Render) without needing FORCE_RESEED env var.
+SEED_VERSION = "2026-09-29-v2"
+
 DATA_DIR = Path(__file__).parent / "data" / "summerset"
 # Docker-image copy, not hidden by Render's persistent disk mount at /app/data
 _SEED_DATA_DIR = Path("/opt/seed_data/summerset")
@@ -411,6 +415,12 @@ def parse_document(filename: str) -> dict:
 
 
 async def seed_all(db, hash_password: Callable[[str], str], force: bool = False) -> None:
+    # Auto-reseed if the seed version has changed (works without FORCE_RESEED env var)
+    if not force:
+        meta = await db["meta"].find_one({"key": "seed_version"})
+        stored_version = meta.get("value") if meta else None
+        if stored_version != SEED_VERSION:
+            force = True
     if not force and await db.projects.count_documents({}) > 0:
         return
     if force:
@@ -645,10 +655,7 @@ async def seed_all(db, hash_password: Callable[[str], str], force: bool = False)
         type_plan = match_docs("Skirting", "ILA", [f"Apartment Type {typ} Plan"])
         floor_name = ILA_LEVELS[lvl_idx]
         ga_docs = [d["id"] for d in documents if d["discipline"] in ("Skirting", "Sanitary") and d["building"] == "ILA" and d.get("floor") == floor_name]
-        # Apartment-level: Door + Skirting + Sanitary + Entry door (separate visi)
-        make_visi("Door", aid, type_plan + ila_door_schedules)
-        make_visi("Skirting", aid, type_plan + ga_docs or match_docs("Skirting", "ILA", ["Apartment"]))
-        make_visi("Sanitary", aid, type_plan + ga_docs or match_docs("Sanitary", "ILA", None))
+        # Apartment-level: only Entry door (separate visi, not under any room)
         make_visi("Entry door", aid, type_plan + ila_door_schedules)
         for (rid, rname, active) in apt_rooms[aid]:
             if not active:
@@ -699,3 +706,6 @@ async def seed_all(db, hash_password: Callable[[str], str], force: bool = False)
 
     if visi_docs:
         await db.visis.insert_many([dict(v) for v in visi_docs])
+
+    # Record the seed version so future startups can detect when a re-seed is needed
+    await db["meta"].update_one({"key": "seed_version"}, {"$set": {"key": "seed_version", "value": SEED_VERSION}}, upsert=True)

@@ -1907,11 +1907,10 @@ if _static.exists():
 async def startup():
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
-    from seed_data import seed_all
+    from seed_data import seed_all, SEED_VERSION
     force_reseed = os.environ.get("FORCE_RESEED", "").lower() in ("1", "true", "yes")
     await seed_all(db, hash_password, force=force_reseed)
-    if force_reseed:
-        logger.info("Force re-seed completed")
+    logger.info(f"Seed complete (version={SEED_VERSION})")
     # Backfill file_data into MongoDB for existing documents missing it
     from bson import Binary
     missing = await db.documents.count_documents({"file_data": {"$exists": False}})
