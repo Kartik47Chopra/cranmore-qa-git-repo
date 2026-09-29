@@ -8,7 +8,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 
 function locPath(locations, id) {
   const byId = Object.fromEntries(locations.map((l) => [l.id, l]));
@@ -29,6 +29,7 @@ export function CreateVisiModal({ open, onClose, projectId, defaultLocationId, l
   const [reviewer, setReviewer] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
+  const [customSteps, setCustomSteps] = useState([]);
 
   useEffect(() => { setLocationId(defaultLocationId || ""); }, [defaultLocationId, open]);
 
@@ -63,12 +64,14 @@ export function CreateVisiModal({ open, onClose, projectId, defaultLocationId, l
         reviewer_company_id: reviewer || null,
         visible_to,
         due_date: dueDate ? new Date(dueDate).toISOString() : null,
+        custom_steps: customSteps.map((s) => ({ label: s.label, type: s.type })),
       });
       toast.success("Visi created");
       onCreated?.();
       onClose();
       setTemplateId("");
       setDueDate("");
+      setCustomSteps([]);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Failed to create Visi");
     } finally {
@@ -144,6 +147,50 @@ export function CreateVisiModal({ open, onClose, projectId, defaultLocationId, l
             </div>
           </div>
         </div>
+
+        {/* Custom steps */}
+        {tmpl && (
+          <div className="space-y-2 border-t pt-3">
+            <div className="flex items-center justify-between">
+              <Label>Checklist steps</Label>
+              <Button size="sm" variant="outline" onClick={() => setCustomSteps((s) => [...s, { label: "", type: "inspection" }])} data-testid="add-custom-step">
+                <Plus size={14} className="mr-1" /> Add custom step
+              </Button>
+            </div>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {tmpl.steps.map((s, i) => (
+                <div key={s.id} className="flex items-center gap-2 text-xs text-slate-500 px-2 py-1 bg-slate-50 rounded">
+                  <span className="font-mono w-5 text-right">{i + 1}.</span>
+                  <span className="flex-1 truncate">{s.label}</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-400">{s.type}</span>
+                </div>
+              ))}
+              {customSteps.map((cs, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <span className="font-mono text-xs text-slate-400 w-5 text-right">{tmpl.steps.length + idx + 1}.</span>
+                  <Input
+                    value={cs.label}
+                    onChange={(e) => setCustomSteps((s) => s.map((x, i) => i === idx ? { ...x, label: e.target.value } : x))}
+                    placeholder="Custom step name"
+                    className="h-8 text-sm"
+                    data-testid={`custom-step-label-${idx}`}
+                  />
+                  <Select value={cs.type} onValueChange={(v) => setCustomSteps((s) => s.map((x, i) => i === idx ? { ...x, type: v } : x))}>
+                    <SelectTrigger className="h-8 w-28 text-xs" data-testid={`custom-step-type-${idx}`}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="inspection">Inspection</SelectItem>
+                      <SelectItem value="task">Task (photo)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500" onClick={() => setCustomSteps((s) => s.filter((_, i) => i !== idx))} data-testid={`custom-step-remove-${idx}`}>
+                    <Trash2 size={14} />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <DialogFooter>
           <Button variant="outline" onClick={onClose} data-testid="create-visi-cancel">Cancel</Button>
           <Button onClick={submit} disabled={saving} className="bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="create-visi-submit">

@@ -554,6 +554,14 @@ async def create_visi(body: dict, user: dict = Depends(get_current_user)):
             "assignee_company_id": s.get("assignee_company_id"),
             "requirements": [{"id": r["id"], "label": r["label"], "attachment_id": None} for r in s.get("requirements", [])],
         })
+    # Append custom steps supplied by the user
+    for cs in body.get("custom_steps", []):
+        sid = str(uuid.uuid4())
+        cstep = {"step_id": sid, "label": cs.get("label", "Custom step"), "type": cs.get("type", "inspection"), "status": "pending",
+                 "assignee_company_id": body.get("assignee_company_id"), "requirements": []}
+        if cstep["type"] == "task":
+            cstep["requirements"] = [{"id": str(uuid.uuid4()), "label": cstep["label"], "attachment_id": None}]
+        steps.append(cstep)
     v = {
         "id": str(uuid.uuid4()),
         "code": f"CC-{67000 + count + 1}",
@@ -1881,7 +1889,10 @@ async def startup():
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
     from seed_data import seed_all
-    await seed_all(db, hash_password)
+    force_reseed = os.environ.get("FORCE_RESEED", "").lower() in ("1", "true", "yes")
+    await seed_all(db, hash_password, force=force_reseed)
+    if force_reseed:
+        logger.info("Force re-seed completed")
     # Backfill file_data into MongoDB for existing documents missing it
     from bson import Binary
     missing = await db.documents.count_documents({"file_data": {"$exists": False}})

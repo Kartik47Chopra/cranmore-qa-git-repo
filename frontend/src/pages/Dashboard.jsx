@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useProject } from "@/context/ProjectContext";
 import { Legend } from "@/components/Indicators";
 import { StackedBarWidget, CountBarWidget } from "@/components/dashboard/StackedBarWidget";
 import { ActivityChart } from "@/components/dashboard/ActivityChart";
-import { CheckCircle2, AlertTriangle, Bug, Clock, ShieldAlert } from "lucide-react";
+import { CheckCircle2, AlertTriangle, Bug, Clock, ShieldAlert, Search, MapPin, DoorOpen } from "lucide-react";
 
 const METRIC_DEFS = [
   { key: "inspections", label: "Inspections closed", icon: CheckCircle2, color: "text-emerald-600", testid: "metric-inspections" },
@@ -17,10 +18,20 @@ const METRIC_DEFS = [
 export default function Dashboard() {
   const { projectId, project } = useProject();
   const [data, setData] = useState(null);
+  const [locations, setLocations] = useState([]);
+  const [searchQ, setSearchQ] = useState("");
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (projectId) api.get(`/dashboard?project_id=${projectId}`).then(({ data }) => setData(data));
+    if (projectId) api.get(`/projects/${projectId}/locations`).then(({ data }) => setLocations(data));
   }, [projectId]);
+
+  const searchResults = useMemo(() => {
+    if (!searchQ.trim() || !locations.length) return [];
+    const q = searchQ.toLowerCase();
+    return locations.filter((l) => l.name?.toLowerCase().includes(q) || l.apt_number?.toLowerCase().includes(q)).slice(0, 8);
+  }, [searchQ, locations]);
 
   const m = data?.metrics;
   const metricValue = (key) => {
@@ -32,8 +43,37 @@ export default function Dashboard() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <header className="px-4 md:px-6 py-4 border-b border-slate-200 bg-white shrink-0">
-        <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-slate-900">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">{project?.name} · {project?.address}</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-slate-900">Dashboard</h1>
+            <p className="text-sm text-muted-foreground">{project?.name} · {project?.address}</p>
+          </div>
+          <div className="relative w-64 max-w-[50%]">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+              placeholder="Search apartments…"
+              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-all"
+              data-testid="dashboard-search"
+            />
+            {searchResults.length > 0 && (
+              <div className="absolute top-full mt-1 right-0 left-0 bg-white border rounded-lg shadow-lg z-50 max-h-72 overflow-y-auto">
+                {searchResults.map((r) => (
+                  <button
+                    key={r.id}
+                    onClick={() => { navigate(`/location/${r.id}`); setSearchQ(""); }}
+                    data-testid={`dashboard-search-result-${r.id}`}
+                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-emerald-50 transition-colors text-left border-b border-slate-100 last:border-0"
+                  >
+                    {r.type === "Unit" ? <DoorOpen size={14} className="text-slate-400 shrink-0" /> : <MapPin size={14} className="text-slate-400 shrink-0" />}
+                    <span className="text-sm text-slate-700 truncate">{r.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6">

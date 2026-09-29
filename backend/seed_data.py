@@ -37,15 +37,12 @@ FLOOR_ORDER = ["Basement Part 1", "Basement Part 2", "Ground Floor", "First Floo
 
 TEMPLATES = {
     "Skirting": {"discipline": "Architectural", "stage": "Fit-off", "system": "Carpentry / Joinery", "trade": "Cranmore Carpenters", "prefix": "SK",
-        "steps": [("Wall / substrate ready & accessible", "inspection"), ("Set-out confirmed to wall setout plan", "inspection"),
-                  ("Skirting supplied & checked (Criterion / Bowens)", "inspection"), ("Installed, mitred & fixed", "inspection"),
-                  ("Photo of installed skirting", "task"), ("Caulk, fill & finish", "inspection"), ("QA sign-off", "inspection")]},
+        "steps": [("Area ready + accessible", "inspection"), ("Installed, mitred & fixed with picture proof", "task"), ("QA sign-off", "inspection")]},
     "Sanitary": {"discipline": "Services", "stage": "Fit-off", "system": "Hydraulic / Sanitary", "trade": "Summerset Plumbing", "prefix": "SN",
-        "steps": [("Rough-in verified", "inspection"), ("Fixtures set out to MFP schedule", "inspection"), ("Fixtures installed", "inspection"),
-                  ("Sealed & leak tested", "inspection"), ("Photo evidence of completed fixtures", "task"), ("QA sign-off", "inspection")]},
+        "steps": [("Noggins marked with photo evidence", "task"), ("Fixtures installed with photo proof of completed fixtures", "task"), ("QA sign-off", "inspection")]},
     "Door": {"discipline": "Architectural", "stage": "Fit-off", "system": "Doors & Hardware", "trade": "Cranmore Carpenters", "prefix": "DR",
-        "steps": [("Frame set out to door schedule", "inspection"), ("Door hung plumb & square", "inspection"), ("Hardware fitted", "inspection"),
-                  ("Operation & fire-rating check", "inspection"), ("Photo of installed door", "task"), ("QA sign-off", "inspection")]},
+        "steps": [("Frame fitted", "inspection"), ("Door margins", "inspection"), ("Hardware fitted", "inspection"),
+                  ("Closer", "inspection"), ("Seals + tags", "inspection"), ("QA sign-off", "inspection")]},
     "Miscellaneous": {"discipline": "Architectural", "stage": "Fit-off", "system": "Fixtures & Fittings", "trade": "Fitout & Fixtures Co", "prefix": "MI",
         "steps": [("Location set-out confirmed", "inspection"), ("Backing / bracket / noggin installed", "inspection"), ("Item mounted & secured", "inspection"),
                   ("Photo evidence of installation", "task"), ("QA sign-off", "inspection")]},
@@ -410,9 +407,13 @@ def parse_document(filename: str) -> dict:
     return {"drawing_no": drawing_no, "revision": rev, "title": title, "ext": ext}
 
 
-async def seed_all(db, hash_password: Callable[[str], str]) -> None:
-    if await db.projects.count_documents({}) > 0:
+async def seed_all(db, hash_password: Callable[[str], str], force: bool = False) -> None:
+    if not force and await db.projects.count_documents({}) > 0:
         return
+    if force:
+        for col in ("users", "companies", "projects", "templates", "locations", "documents", "visis", "attachments", "activity", "tasks", "milestones", "login_attempts"):
+            await db[col].delete_many({})
+        await db.users.create_index("email", unique=True)
 
     comps = {}
     for c in COMPANIES:
@@ -519,17 +520,13 @@ async def seed_all(db, hash_password: Callable[[str], str]) -> None:
         apts.append((aid, num, typ, beds, lvl_idx))
         rooms = ILA_TYPE_ROOMS[typ]
         room_defs = [(f"Bedroom {b}", "active" if b <= beds else "na") for b in range(1, ILA_STANDARD_BEDROOMS + 1)]
-        if rooms["ensuite"]:
-            room_defs.append(("Ensuite", "active"))
+        # Ensuite on every apartment; Store and Linen removed from every apartment
+        room_defs.append(("Ensuite", "active"))
         room_defs += [("Bathroom", "active"), ("Living / Kitchen / Dining", "active"), ("Laundry", "active")]
         if rooms.get("powder"):
             room_defs.append(("Powder Room", "active"))
-        if rooms["study"]:
+        if rooms.get("study"):
             room_defs.append(("Study", "active"))
-        if rooms["store"]:
-            room_defs.append(("Store", "active"))
-        if rooms["linen"]:
-            room_defs.append(("Linen", "active"))
         apt_rooms[aid] = []
         for i, (rname, rstatus) in enumerate(room_defs):
             rid = str(uuid.uuid4())
@@ -636,13 +633,17 @@ async def seed_all(db, hash_password: Callable[[str], str]) -> None:
             visi_docs[-1]["fixture_label"] = label
             visi_docs[-1]["template_name"] = f"Utility · {label} · {floor}"
 
-    # ILA per-apartment: Skirting + Sanitary on the apartment, a Door Visi per bedroom
-    # (each bedroom door gets its own page) and per ensuite, plus a Robe Jamb Visi per bedroom.
+    # ILA per-apartment: Entry Door + Skirting + Sanitary on the apartment, then per-room
+    # visis: Bedroom (Door + Skirting + Robe Jamb), Ensuite (Door + Sanitary),
+    # Bathroom (Door + Sanitary), Living (Skirting + Door), Laundry (Door + Skirting),
+    # Powder Room (Door + Skirting + Sanitary).
     ila_door_schedules = [d["id"] for d in documents if d["discipline"] == "Door" and (d.get("drawing_no") or "").startswith("A29")]
     for (aid, num, typ, beds, lvl_idx) in apts:
         type_plan = match_docs("Skirting", "ILA", [f"Apartment Type {typ} Plan"])
         floor_name = ILA_LEVELS[lvl_idx]
         ga_docs = [d["id"] for d in documents if d["discipline"] in ("Skirting", "Sanitary") and d["building"] == "ILA" and d.get("floor") == floor_name]
+        # Apartment-level: Entry Door + Skirting + Sanitary
+        make_visi("Door", aid, type_plan + ila_door_schedules)
         make_visi("Skirting", aid, type_plan + ga_docs or match_docs("Skirting", "ILA", ["Apartment"]))
         make_visi("Sanitary", aid, type_plan + ga_docs or match_docs("Sanitary", "ILA", None))
         for (rid, rname, active) in apt_rooms[aid]:
@@ -650,9 +651,24 @@ async def seed_all(db, hash_password: Callable[[str], str]) -> None:
                 continue
             if rname.startswith("Bedroom"):
                 make_visi("Door", rid, type_plan + ila_door_schedules)
+                make_visi("Skirting", rid, type_plan)
                 make_visi("Robe Jamb", rid, type_plan)
             elif rname == "Ensuite":
                 make_visi("Door", rid, type_plan + ila_door_schedules)
+                make_visi("Sanitary", rid, type_plan + ga_docs)
+            elif rname == "Bathroom":
+                make_visi("Door", rid, type_plan + ila_door_schedules)
+                make_visi("Sanitary", rid, type_plan + ga_docs)
+            elif rname == "Living / Kitchen / Dining":
+                make_visi("Skirting", rid, type_plan)
+                make_visi("Door", rid, type_plan + ila_door_schedules)
+            elif rname == "Laundry":
+                make_visi("Door", rid, type_plan + ila_door_schedules)
+                make_visi("Skirting", rid, type_plan)
+            elif rname == "Powder Room":
+                make_visi("Door", rid, type_plan + ila_door_schedules)
+                make_visi("Skirting", rid, type_plan)
+                make_visi("Sanitary", rid, type_plan + ga_docs)
 
     # Doors at each building floor that has door drawings
     door_floor_docs = {}

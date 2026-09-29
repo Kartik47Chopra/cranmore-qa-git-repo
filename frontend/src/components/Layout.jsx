@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, ListChecks, Grid3x3, Settings, Milestone, FileSpreadsheet, ChevronDown, LogOut, Building, FileText, FileBarChart2, UserCog, Menu, X, History, ClipboardCheck, CalendarCheck } from "lucide-react";
+import { LayoutDashboard, ListChecks, Grid3x3, Settings, Milestone, FileSpreadsheet, ChevronDown, LogOut, Building, FileText, FileBarChart2, UserCog, Menu, X, History, ClipboardCheck, CalendarCheck, Search } from "lucide-react";
 import TreeLogo from "@/components/TreeLogo";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useProject } from "@/context/ProjectContext";
 import { LocationTree } from "@/components/LocationTree";
 import { Assistant, AssistantButton } from "@/components/Assistant";
+import { SearchDialog } from "@/components/SearchDialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
@@ -31,6 +32,7 @@ export default function Layout() {
   const [locations, setLocations] = useState([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const navigate = useNavigate();
   const company = companies.find((c) => c.id === user?.company_id);
 
@@ -62,6 +64,17 @@ export default function Layout() {
           </div>
           <button className="md:hidden p-1.5 rounded-md hover:bg-slate-800 text-slate-400" onClick={() => setDrawerOpen(false)} aria-label="Close menu">
             <X size={18} />
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="px-3 pt-3">
+          <button
+            onClick={() => setSearchOpen(true)}
+            data-testid="sidebar-search-btn"
+            className="w-full flex items-center gap-2 rounded-md bg-slate-800 hover:bg-slate-700 px-3 py-2 text-sm text-slate-400 transition-colors"
+          >
+            <Search size={15} /> Search apartments…
           </button>
         </div>
 
@@ -149,6 +162,9 @@ export default function Layout() {
           <button onClick={() => setDrawerOpen(true)} aria-label="Open menu" data-testid="mobile-menu-btn" className="p-1.5 rounded-md hover:bg-slate-800">
             <Menu size={20} />
           </button>
+          <button onClick={() => setSearchOpen(true)} aria-label="Search" data-testid="mobile-search-btn" className="p-1.5 rounded-md hover:bg-slate-800">
+            <Search size={20} />
+          </button>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold truncate">{project?.name || "Cranmore QA"}</div>
           </div>
@@ -162,6 +178,7 @@ export default function Layout() {
       {/* Assistant */}
       <AssistantButton onClick={() => setAssistantOpen(true)} />
       <Assistant open={assistantOpen} onClose={() => setAssistantOpen(false)} />
+      <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} locations={locations} />
     </div>
   );
 }
