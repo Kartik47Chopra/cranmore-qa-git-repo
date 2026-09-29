@@ -122,7 +122,7 @@ export default function ApartmentOverview({ loc, locations, visis, projectId, on
           return (
             <button
               key={room.id}
-              onClick={() => navigate(`/location/${room.id}`)}
+              onClick={() => navigate(`/location/${room.id}?tab=visis`)}
               disabled={isNA}
               className={`flex items-center gap-3 px-4 py-3 border rounded-lg transition-all text-left group ${
                 isNA

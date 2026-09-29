@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { api, fileUrl } from "@/lib/api";
 import { useProject } from "@/context/ProjectContext";
 import { useAuth } from "@/context/AuthContext";
@@ -15,7 +15,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { QrCode, MapPin, ChevronDown, Plus, FileText, Eye, Download, Ban } from "lucide-react";
+import { QrCode, MapPin, ChevronDown, Plus, FileText, Eye, Download, Ban, ArrowLeft } from "lucide-react";
 import { docUrl } from "@/lib/api";
 import { VisiQuickActions } from "@/components/VisiQuickActions";
 import ApartmentOverview from "@/components/ApartmentOverview";
@@ -37,6 +37,8 @@ function buildPath(locations, id) {
 
 export default function LocationDetail() {
   const { locationId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { projectId } = useProject();
   const { companies } = useAuth();
   const [locations, setLocations] = useState([]);
@@ -52,6 +54,21 @@ export default function LocationDetail() {
   const [activeDoc, setActiveDoc] = useState(null);
   const [showQr, setShowQr] = useState(false);
   const [activeAtt, setActiveAtt] = useState(null);
+  const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "overview");
+  const visiParamHandled = useRef(false);
+
+  // Auto-open VisiModal when navigated with ?visi=ID (e.g. from Entry door button)
+  useEffect(() => {
+    if (!visiParamHandled.current) {
+      const visiId = searchParams.get("visi");
+      if (visiId) {
+        setOpenVisi(visiId);
+        searchParams.delete("visi");
+        setSearchParams(searchParams, { replace: true });
+      }
+      visiParamHandled.current = true;
+    }
+  }, [searchParams, setSearchParams]);
 
   const load = () => {
     if (!projectId || !locationId) return;
@@ -72,6 +89,13 @@ export default function LocationDetail() {
   const loc = locations.find((l) => l.id === locationId);
   const path = buildPath(locations, locationId);
   const deepLink = `${window.location.origin}/location/${locationId}`;
+
+  // Default to Visis tab for non-apartment locations (rooms) unless a tab was explicitly requested
+  useEffect(() => {
+    if (loc && !searchParams.get("tab")) {
+      setActiveTab(loc.type === "Unit" ? "overview" : "visis");
+    }
+  }, [loc]);
 
   const markNa = async () => {
     if (!window.confirm(`Mark ALL Visis at "${loc?.name || "this location"}" and everything inside it as N/A? You can undo this.`)) return;
@@ -118,11 +142,16 @@ export default function LocationDetail() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <header className="px-4 md:px-6 py-4 border-b border-slate-200 bg-white shrink-0 flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-xs text-muted-foreground flex items-center gap-1 truncate">{path.join(" / ")}</div>
+        <div className="flex items-center gap-2 min-w-0">
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="shrink-0 text-slate-600 hover:bg-slate-100" data-testid="back-btn" title="Go back">
+            <ArrowLeft size={20} />
+          </Button>
+          <div className="min-w-0">
+            <div className="text-xs text-muted-foreground flex items-center gap-1 truncate">{path.join(" / ")}</div>
           <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-slate-900 flex items-center gap-2">
             <MapPin size={20} className="text-emerald-600" /> {loc?.name || "Location"}
           </h1>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -139,7 +168,7 @@ export default function LocationDetail() {
       </header>
 
       <div className="flex-1 overflow-hidden flex flex-col">
-        <Tabs defaultValue="overview" className="flex-1 flex flex-col overflow-hidden">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
           <TabsList className="mx-4 md:mx-6 mt-3 w-fit max-w-[calc(100%-2rem)] overflow-x-auto no-scrollbar">
             <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
             <TabsTrigger value="visis" data-testid="tab-visis">Visis</TabsTrigger>
