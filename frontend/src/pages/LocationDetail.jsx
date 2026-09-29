@@ -153,7 +153,8 @@ export default function LocationDetail() {
             <ApartmentOverview loc={loc} locations={locations} visis={visis} projectId={projectId} onChanged={load} />
           </TabsContent>
 
-          <TabsContent value="visis" className="flex-1 overflow-hidden flex flex-col mt-0">
+          <TabsContent value="visis" className="flex-1 overflow-hidden mt-0">
+            <div className="h-full flex flex-col">
             <div className="flex flex-wrap items-center gap-2 px-4 md:px-6 py-3 border-b">
               <div className="flex gap-2 overflow-x-auto no-scrollbar w-full md:w-auto md:overflow-visible flex-1 min-w-0">
               <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -255,6 +256,7 @@ export default function LocationDetail() {
                 </TableBody>
               </Table>
               </div>
+            </div>
             </div>
           </TabsContent>
 
