@@ -23,6 +23,7 @@ services:
       - FRONTEND_URL=https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
       - ADMIN_EMAIL=factory@maxxdoors.com.au
       - ADMIN_PASSWORD=Cranmore2026!
+      - FORCE_RESEED=true
     env_file:
       - ./.env.base44-defaults
       - /run/base44/app.env

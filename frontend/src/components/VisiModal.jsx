@@ -40,11 +40,11 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
 
   if (!visi) return null;
 
-  const toggleStep = async (step) => {
+  const toggleStep = async (step, force = false) => {
     const next = step.status === "complete" ? "pending" : "complete";
     const prevSteps = visi.steps.map((s) => ({ step_id: s.step_id, status: s.status }));
     try {
-      const { data } = await api.patch(`/visis/${visi.id}/step`, { step_id: step.step_id, status: next });
+      const { data } = await api.patch(`/visis/${visi.id}/step`, { step_id: step.step_id, status: next, force });
       setVisi((v) => ({ ...v, ...data }));
       onChanged?.();
       if (next === "complete") {
@@ -65,6 +65,31 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
       }
     } catch (e) {
       toast.error(e.response?.data?.detail || "Could not update step");
+    }
+  };
+
+  const forceCompleteStep = async (step) => {
+    const prevSteps = visi.steps.map((s) => ({ step_id: s.step_id, status: s.status }));
+    try {
+      const { data } = await api.patch(`/visis/${visi.id}/step`, { step_id: step.step_id, status: "complete", force: true });
+      setVisi((v) => ({ ...v, ...data }));
+      onChanged?.();
+      toast.success(`"${step.label}" force-completed (requirements skipped)`, {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              for (const s of prevSteps) {
+                if (s.status === "pending") await api.patch(`/visis/${visi.id}/step`, { step_id: s.step_id, status: "pending" });
+              }
+              load();
+              onChanged?.();
+            } catch { toast.error("Could not undo"); }
+          },
+        },
+      });
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Could not force-complete step");
     }
   };
 
@@ -294,9 +319,16 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
                               </div>
                             );
                           })}
-                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" disabled={s.requirements.some((r) => !r.attachment_id) || s.status === "complete"} onClick={() => toggleStep(s)} data-testid={`complete-req-${s.step_id}`}>
-                            Complete requirements
-                          </Button>
+                          <div className="flex flex-wrap gap-2">
+                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" disabled={s.requirements.some((r) => !r.attachment_id) || s.status === "complete"} onClick={() => toggleStep(s)} data-testid={`complete-req-${s.step_id}`}>
+                              Complete requirements
+                            </Button>
+                            {s.requirements.some((r) => !r.attachment_id) && s.status !== "complete" && (
+                              <Button size="sm" variant="outline" className="border-amber-400 text-amber-700 hover:bg-amber-50" onClick={() => forceCompleteStep(s)} data-testid={`force-complete-${s.step_id}`}>
+                                Force complete
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>

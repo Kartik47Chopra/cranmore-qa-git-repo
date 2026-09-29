@@ -472,6 +472,24 @@ async def create_template(body: dict, user: dict = Depends(get_current_user)):
     return clean(t)
 
 
+@api_router.patch("/templates/{template_id}")
+async def update_template(template_id: str, body: dict, user: dict = Depends(get_current_user)):
+    t = await db.templates.find_one({"id": template_id})
+    if not t:
+        raise HTTPException(status_code=404, detail="Template not found")
+    upd = {}
+    if "name" in body:
+        upd["name"] = body["name"]
+    if "discipline" in body:
+        upd["discipline"] = body["discipline"]
+    if "steps" in body:
+        upd["steps"] = body["steps"]
+    if upd:
+        upd["last_updated"] = now_iso()
+        await db.templates.update_one({"id": template_id}, {"$set": upd})
+    return clean(await db.templates.find_one({"id": template_id}))
+
+
 # ------------------------------------------------------------------ Visis
 def owner_admin(user: dict) -> bool:
     return user.get("role") in ("admin", "pm")
@@ -588,10 +606,11 @@ async def toggle_step(visi_id: str, body: dict, user: dict = Depends(get_current
         raise HTTPException(status_code=404, detail="Visi not found")
     step_id = body["step_id"]
     new_status = body.get("status", "complete")
+    force = body.get("force", False)
     target_idx = next((i for i, s in enumerate(v["steps"]) if s["step_id"] == step_id), None)
     for s in v["steps"]:
         if s["step_id"] == step_id:
-            if s["type"] == "task" and new_status == "complete":
+            if s["type"] == "task" and new_status == "complete" and not force:
                 missing = [r for r in s.get("requirements", []) if not r.get("attachment_id")]
                 if missing:
                     raise HTTPException(status_code=400, detail="Attach evidence to all requirements before completing this task step")

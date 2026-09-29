@@ -55,6 +55,7 @@ export default function LocationDetail() {
   const load = () => {
     if (!projectId || !locationId) return;
     api.get(`/visis?project_id=${projectId}&location_id=${locationId}`).then(({ data }) => setVisis(data));
+    api.get(`/templates`).then(({ data }) => setTemplates(data));
   };
 
   useEffect(() => {

@@ -40,7 +40,7 @@ TEMPLATES = {
         "steps": [("Area ready + accessible", "inspection"), ("Installed, mitred & fixed with picture proof", "task"), ("QA sign-off", "inspection")]},
     "Sanitary": {"discipline": "Services", "stage": "Fit-off", "system": "Hydraulic / Sanitary", "trade": "Summerset Plumbing", "prefix": "SN",
         "steps": [("Noggins marked with photo evidence", "task"), ("Fixtures installed with photo proof of completed fixtures", "task"), ("QA sign-off", "inspection")]},
-    "Door": {"discipline": "Architectural", "stage": "Fit-off", "system": "Doors & Hardware", "trade": "Cranmore Carpenters", "prefix": "DR",
+    "Door": {"discipline": "Architectural", "stage": "Fit-off", "system": "Doors & Hardware", "trade": "Cranmore Carpenters", "prefix": "DR", "display_name": "Entry door",
         "steps": [("Frame fitted", "inspection"), ("Door margins", "inspection"), ("Hardware fitted", "inspection"),
                   ("Closer", "inspection"), ("Seals + tags", "inspection"), ("QA sign-off", "inspection")]},
     "Miscellaneous": {"discipline": "Architectural", "stage": "Fit-off", "system": "Fixtures & Fittings", "trade": "Fitout & Fixtures Co", "prefix": "MI",
@@ -439,7 +439,7 @@ async def seed_all(db, hash_password: Callable[[str], str], force: bool = False)
                 step["requirements"] = [{"id": str(uuid.uuid4()), "label": label}]
             steps.append(step)
         t["id"] = tid
-        await db.templates.insert_one({"id": tid, "name": disc, "revision": 1, "discipline": t["discipline"], "stage": t["stage"], "system": t["system"], "assignee_company": comps[t["trade"]], "steps": steps})
+        await db.templates.insert_one({"id": tid, "name": t.get("display_name", disc), "revision": 1, "discipline": t["discipline"], "stage": t["stage"], "system": t["system"], "assignee_company": comps[t["trade"]], "steps": steps})
 
     BUILDING_LABELS = {"RACF": "RACF · Aged Care Facility", "ILA": "ILA · Independent Living Apartments", "General": "General / Whole Site"}
     building_nodes, floor_nodes = {}, {}
@@ -581,7 +581,7 @@ async def seed_all(db, hash_password: Callable[[str], str], force: bool = False)
                 s["requirements"] = [{"id": str(uuid.uuid4()), "label": label, "attachment_id": None}]
             steps.append(s)
         visi_docs.append({"id": str(uuid.uuid4()), "code": f"225-{t['prefix']}-{seq[discipline]:03d}", "visi_type": visi_type,
-                          "template_id": t["id"], "template_name": discipline, "template_revision": 1, "location_id": loc_id,
+                          "template_id": t["id"], "template_name": t.get("display_name", discipline), "template_revision": 1, "location_id": loc_id,
                           "project_id": project_id, "assignee_company_id": comps[t["trade"]], "reviewer_company_id": owner_id,
                           "visible_to": list({owner_id, comps[t["trade"]]}), "steps": steps, "override_status": None,
                           "system": t["system"], "stage": t["stage"], "discipline": t["discipline"], "due_date": None,
