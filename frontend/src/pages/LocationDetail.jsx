@@ -184,7 +184,7 @@ export default function LocationDetail() {
           </TabsList>
 
           <TabsContent value="overview" className="flex-1 overflow-y-auto mt-0">
-            <ApartmentOverview loc={loc} locations={locations} visis={visis} projectId={projectId} onChanged={load} />
+            <ApartmentOverview loc={loc} locations={locations} visis={visis} projectId={projectId} onChanged={load} onOpenVisi={setOpenVisi} />
           </TabsContent>
 
           <TabsContent value="visis" className="flex-1 overflow-hidden mt-0">

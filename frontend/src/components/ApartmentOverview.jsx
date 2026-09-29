@@ -27,7 +27,7 @@ function roomIcon(name) {
   return MapPin;
 }
 
-export default function ApartmentOverview({ loc, locations, visis, projectId, onChanged }) {
+export default function ApartmentOverview({ loc, locations, visis, projectId, onChanged, onOpenVisi }) {
   const navigate = useNavigate();
   const [dialog, setDialog] = useState(null); // {mode: 'add'|'rename'}
   const [form, setForm] = useState({ name: "" });
@@ -92,7 +92,7 @@ export default function ApartmentOverview({ loc, locations, visis, projectId, on
             {aptVisis.map((v) => (
               <button
                 key={v.id}
-                onClick={() => navigate(`/location/${loc.id}?visi=${v.id}`)}
+                onClick={() => onOpenVisi(v.id)}
                 className="flex items-center gap-3 px-4 py-3 border rounded-lg bg-white hover:border-emerald-400 hover:shadow-sm transition-all text-left group"
               >
                 <DoorOpen size={18} className="text-emerald-600 shrink-0" />
