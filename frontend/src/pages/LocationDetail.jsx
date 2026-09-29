@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { api, fileUrl } from "@/lib/api";
 import { useProject } from "@/context/ProjectContext";
@@ -55,20 +55,25 @@ export default function LocationDetail() {
   const [showQr, setShowQr] = useState(false);
   const [activeAtt, setActiveAtt] = useState(null);
   const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "overview");
-  const visiParamHandled = useRef(false);
 
   // Auto-open VisiModal when navigated with ?visi=ID (e.g. from Entry door button)
   useEffect(() => {
-    if (!visiParamHandled.current) {
-      const visiId = searchParams.get("visi");
-      if (visiId) {
-        setOpenVisi(visiId);
-        searchParams.delete("visi");
-        setSearchParams(searchParams, { replace: true });
-      }
-      visiParamHandled.current = true;
+    const visiId = searchParams.get("visi");
+    if (visiId) {
+      setOpenVisi(visiId);
+      searchParams.delete("visi");
+      setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  // Sync activeTab from URL ?tab= when navigating to a different location
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab) {
+      setActiveTab(tab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId]);
 
   const load = () => {
     if (!projectId || !locationId) return;
@@ -143,7 +148,7 @@ export default function LocationDetail() {
     <div className="flex flex-col h-full overflow-hidden">
       <header className="px-4 md:px-6 py-4 border-b border-slate-200 bg-white shrink-0 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="shrink-0 text-slate-600 hover:bg-slate-100" data-testid="back-btn" title="Go back">
+          <Button variant="ghost" size="icon" onClick={() => window.history.length > 1 ? navigate(-1) : navigate("/dashboard")} className="shrink-0 text-slate-600 hover:bg-slate-100" data-testid="back-btn" title="Go back">
             <ArrowLeft size={20} />
           </Button>
           <div className="min-w-0">
