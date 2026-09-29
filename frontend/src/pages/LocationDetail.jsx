@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { QrCode, MapPin, ChevronDown, Plus, FileText, Eye, Download, Ban } from "lucide-react";
 import { docUrl } from "@/lib/api";
 import { VisiQuickActions } from "@/components/VisiQuickActions";
+import ApartmentOverview from "@/components/ApartmentOverview";
 import { toast } from "sonner";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -138,7 +139,7 @@ export default function LocationDetail() {
       </header>
 
       <div className="flex-1 overflow-hidden flex flex-col">
-        <Tabs defaultValue="visis" className="flex-1 flex flex-col overflow-hidden">
+        <Tabs defaultValue="overview" className="flex-1 flex flex-col overflow-hidden">
           <TabsList className="mx-4 md:mx-6 mt-3 w-fit max-w-[calc(100%-2rem)] overflow-x-auto no-scrollbar">
             <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
             <TabsTrigger value="visis" data-testid="tab-visis">Visis</TabsTrigger>
@@ -148,13 +149,8 @@ export default function LocationDetail() {
             <TabsTrigger value="plan" data-testid="tab-plan">Floor Plan</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="overview" className="flex-1 overflow-y-auto px-6 py-4 mt-0">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-3xl">
-              <Stat label="Total Visis" value={visis.length} />
-              <Stat label="Closed" value={visis.filter((v) => v.status === "closed").length} />
-              <Stat label="In progress" value={visis.filter((v) => v.status === "in_progress").length} />
-              <Stat label="Open" value={visis.filter((v) => v.status === "open").length} />
-            </div>
+          <TabsContent value="overview" className="flex-1 overflow-y-auto mt-0">
+            <ApartmentOverview loc={loc} locations={locations} visis={visis} projectId={projectId} onChanged={load} />
           </TabsContent>
 
           <TabsContent value="visis" className="flex-1 overflow-hidden flex flex-col mt-0">
