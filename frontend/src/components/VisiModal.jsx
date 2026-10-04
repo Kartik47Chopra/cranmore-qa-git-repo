@@ -34,6 +34,11 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
     if (visiId) api.get(`/visis/${visiId}`).then(({ data }) => setVisi(data));
   };
   useEffect(() => { if (open && visiId) load(); }, [visiId, open]);
+  // Clear any pending photo/file state when switching to a different visi
+  useEffect(() => {
+    pending.current = null;
+    setUploading(null);
+  }, [visiId]);
   useEffect(() => {
     if (open && projectId) api.get(`/milestones?project_id=${projectId}`).then(({ data }) => setMilestones(data));
   }, [open, projectId]);
@@ -266,13 +271,32 @@ export function VisiModal({ visiId, open, onClose, onChanged }) {
                   {(visi.attachments || []).map((a) => {
                     const sLabel = a.step_id ? visi.steps.find((s) => s.step_id === a.step_id)?.label : null;
                     return (
-                      <button key={a.id} onClick={() => setActiveAtt(a)} data-testid={`att-thumb-${a.id}`} className="relative h-20 w-20 rounded-md overflow-hidden border border-slate-200 hover:ring-2 ring-emerald-400 transition group">
-                        <img src={fileUrl(a.storage_path)} alt="" className="h-full w-full object-cover" />
-                        {a.lat != null && <MapPin size={12} className="absolute bottom-1 right-1 text-white drop-shadow" />}
+                      <div key={a.id} className="relative h-20 w-20 rounded-md overflow-hidden border border-slate-200 group">
+                        <button onClick={() => setActiveAtt(a)} data-testid={`att-thumb-${a.id}`} className="h-full w-full hover:ring-2 ring-emerald-400 transition">
+                          <img src={fileUrl(a.storage_path)} alt="" className="h-full w-full object-cover" />
+                        </button>
+                        {a.lat != null && <MapPin size={12} className="absolute bottom-1 right-1 text-white drop-shadow pointer-events-none" />}
                         {sLabel && (
-                          <span className="absolute top-0 left-0 right-0 bg-black/55 text-white text-[8px] font-semibold leading-tight px-1 py-0.5 truncate text-left" title={sLabel}>{sLabel}</span>
+                          <span className="absolute top-0 left-0 right-0 bg-black/55 text-white text-[8px] font-semibold leading-tight px-1 py-0.5 truncate text-left pointer-events-none" title={sLabel}>{sLabel}</span>
                         )}
-                      </button>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!window.confirm("Delete this photo?")) return;
+                            try {
+                              await api.delete(`/attachments/${a.id}`);
+                              load();
+                              onChanged?.();
+                              toast.success("Photo deleted");
+                            } catch { toast.error("Could not delete photo"); }
+                          }}
+                          data-testid={`att-delete-${a.id}`}
+                          className="absolute top-0 right-0 bg-red-500/90 text-white rounded-bl-md p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Delete photo"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     );
                   })}
                   {(!visi.attachments || visi.attachments.length === 0) && <div className="text-xs text-slate-400">No attachments yet.</div>}

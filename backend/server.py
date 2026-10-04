@@ -653,10 +653,12 @@ async def add_comment(visi_id: str, body: dict, user: dict = Depends(get_current
 
 @api_router.delete("/visis/{visi_id}")
 async def delete_visi(visi_id: str, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("admin", "pm"):
+        raise HTTPException(status_code=403, detail="Only admins can delete records")
     v = await db.visis.find_one({"id": visi_id, "is_deleted": {"$ne": True}})
     if not v:
         raise HTTPException(status_code=404, detail="Visi not found")
-    await db.visis.update_one({"id": visi_id}, {"$set": {"is_deleted": True, "last_updated": now_iso()}})
+    await db.visis.update_one({"id": visi_id}, {"$set": {"is_deleted": True, "deleted_at": now_iso(), "deleted_by": user["name"], "last_updated": now_iso()}})
     await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": visi_id, "user": user["name"], "text": f"deleted Visi {v.get('code')}", "type": "delete", "created_at": now_iso()})
     return {"ok": True, "id": visi_id}
 
@@ -746,7 +748,7 @@ async def update_attachment(att_id: str, body: dict, user: dict = Depends(get_cu
 @api_router.delete("/attachments/{att_id}")
 async def delete_attachment(att_id: str, user: dict = Depends(get_current_user)):
     att = await db.attachments.find_one({"id": att_id})
-    await db.attachments.update_one({"id": att_id}, {"$set": {"is_deleted": True}})
+    await db.attachments.update_one({"id": att_id}, {"$set": {"is_deleted": True, "deleted_at": now_iso(), "deleted_by": user["name"]}})
     # Clear the requirement link so deleted evidence no longer counts as fulfilled
     if att and att.get("visi_id") and att.get("step_id") and att.get("requirement_id"):
         v = await db.visis.find_one({"id": att["visi_id"]})
@@ -1405,13 +1407,26 @@ async def report_pdf(project_id: str, request: Request, auth: str = Query(None))
     from reportlab.lib.enums import TA_LEFT
 
     buf = _io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=15 * mm, bottomMargin=15 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
+    page_w, page_h = A4
+    page_num = [0]
+
+    def on_page(canvas, doc):
+        page_num[0] += 1
+        canvas.saveState()
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(colors.HexColor("#94A3B8"))
+        canvas.drawCentredString(page_w / 2, 10 * mm, f"Page {page_num[0]}")
+        canvas.restoreState()
+
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=18 * mm, bottomMargin=18 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="SectionTitle", fontName="Helvetica-Bold", fontSize=13, spaceAfter=6, spaceBefore=10, textColor=colors.HexColor("#0F172A")))
     styles.add(ParagraphStyle(name="ItemTitle", fontName="Helvetica-Bold", fontSize=10, spaceAfter=2))
-    styles.add(ParagraphStyle(name="Small", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("#64748B")))
-    styles.add(ParagraphStyle(name="StepDone", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("#16A34A")))
-    styles.add(ParagraphStyle(name="StepOutstanding", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("#475569")))
+    styles.add(ParagraphStyle(name="Small", fontName="Helvetica", fontSize=9, textColor=colors.HexColor("#64748B"), leading=12))
+    styles.add(ParagraphStyle(name="StepDone", fontName="Helvetica", fontSize=9, textColor=colors.HexColor("#16A34A"), leading=12))
+    styles.add(ParagraphStyle(name="StepOutstanding", fontName="Helvetica", fontSize=9, textColor=colors.HexColor("#475569"), leading=12))
+    styles.add(ParagraphStyle(name="TC", fontName="Helvetica", fontSize=9, textColor=colors.HexColor("#1E293B"), leading=12))
+    styles.add(ParagraphStyle(name="TH", fontName="Helvetica-Bold", fontSize=9, textColor=colors.white, leading=12))
     story = []
 
     # Header
@@ -1420,33 +1435,30 @@ async def report_pdf(project_id: str, request: Request, auth: str = Query(None))
     story.append(Paragraph(f"Cranmore Carpenters QA — Generated {now_iso()[:19]}", styles["Small"]))
     story.append(Spacer(1, 8))
 
-    # Summary table
+    # Summary table — use Paragraphs to prevent overlap
     total = len(visis)
     closed = sum(1 for v in visis if v["status"] == "closed")
     step_done = sum(v["progress_done"] for v in visis)
     step_total = sum(v["progress_total"] for v in visis)
     pct = round((step_done / step_total * 100) if step_total else 0)
     summary_data = [
-        ["Total inspections", "Closed", "Checklist progress"],
-        [str(total), str(closed), f"{pct}%"],
+        [Paragraph("Total inspections", styles["TH"]), Paragraph("Closed", styles["TH"]), Paragraph("Checklist progress", styles["TH"])],
+        [Paragraph(str(total), styles["TC"]), Paragraph(str(closed), styles["TC"]), Paragraph(f"{pct}%", styles["TC"])],
     ]
     summary_tbl = Table(summary_data, colWidths=[60 * mm, 60 * mm, 60 * mm])
     summary_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
         ("ROWBACKGROUNDS", (0, 1), (-1, 1), [colors.HexColor("#F8FAFC")]),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
     story.append(summary_tbl)
     story.append(Spacer(1, 10))
 
-    # Per-building summary
-    bld_data = [["Building", "Trade", "Total", "Closed", "In Progress", "Open", "Progress"]]
+    # Per-building summary — use Paragraphs in ALL cells to prevent text overlap
     bld_result = {}
     for v in visis:
         b = (top(v["location_id"]) or {}).get("name", "General")
@@ -1457,29 +1469,42 @@ async def report_pdf(project_id: str, request: Request, auth: str = Query(None))
         g["step_total"] += v["progress_total"]
         st = v["status"]
         g[st if st in ("closed", "in_progress", "open") else "open"] += 1
+
+    bld_data = [[
+        Paragraph("Building", styles["TH"]), Paragraph("Trade", styles["TH"]),
+        Paragraph("Total", styles["TH"]), Paragraph("Closed", styles["TH"]),
+        Paragraph("In Progress", styles["TH"]), Paragraph("Open", styles["TH"]),
+        Paragraph("Progress", styles["TH"]),
+    ]]
     for b, trades in sorted(bld_result.items()):
         for t, vals in sorted(trades.items()):
             p = round((vals["step_done"] / vals["step_total"] * 100) if vals["step_total"] else 0)
-            bld_data.append([b, t, str(vals["total"]), str(vals["closed"]), str(vals["in_progress"]), str(vals["open"]), f"{p}%"])
+            bld_data.append([
+                Paragraph(b, styles["TC"]), Paragraph(t, styles["TC"]),
+                Paragraph(str(vals["total"]), styles["TC"]), Paragraph(str(vals["closed"]), styles["TC"]),
+                Paragraph(str(vals["in_progress"]), styles["TC"]), Paragraph(str(vals["open"]), styles["TC"]),
+                Paragraph(f"{p}%", styles["TC"]),
+            ])
     if len(bld_data) > 1:
-        bld_tbl = Table(bld_data, colWidths=[40 * mm, 38 * mm, 16 * mm, 16 * mm, 22 * mm, 16 * mm, 22 * mm])
+        bld_tbl = Table(bld_data, colWidths=[40 * mm, 35 * mm, 15 * mm, 15 * mm, 20 * mm, 15 * mm, 20 * mm], repeatRows=1)
         bld_tbl.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
         ]))
         story.append(Paragraph("Summary by Building &amp; Trade", styles["SectionTitle"]))
         story.append(bld_tbl)
         story.append(Spacer(1, 10))
 
-    # Detailed items
-    story.append(Paragraph("Detailed Status", styles["SectionTitle"]))
-    for v in sorted(visis, key=lambda v: ((top(v["location_id"]) or {}).get("name", ""), v.get("template_name", ""), v.get("code", ""))):
+    # Detailed items — only show items with progress (not all 1404 to keep page count reasonable)
+    items_with_progress = [v for v in visis if v["progress_done"] > 0 or v["status"] == "closed"]
+    story.append(Paragraph(f"Detailed Status ({len(items_with_progress)} items with progress)", styles["SectionTitle"]))
+    for v in sorted(items_with_progress, key=lambda v: ((top(v["location_id"]) or {}).get("name", ""), v.get("template_name", ""), v.get("code", ""))):
         done_steps = [s["label"] for s in v.get("steps", []) if s.get("status") == "complete"]
         outstanding_steps = [s["label"] for s in v.get("steps", []) if s.get("status") != "complete"]
         item_flow = []
@@ -1494,27 +1519,35 @@ async def report_pdf(project_id: str, request: Request, auth: str = Query(None))
         if outstanding_steps:
             item_flow.append(Paragraph("<b>Outstanding:</b> " + ", ".join(outstanding_steps), styles["StepOutstanding"]))
 
-        # Photos
+        # Photos — compressed thumbnails
         photos = atts_by_visi.get(v["id"], [])
-        for p in photos[:6]:
+        for p in photos[:4]:
             try:
                 img_data, _ = get_object(p["storage_path"])
-                img_io = _io.BytesIO(img_data)
+                # Compress for PDF
                 from PIL import Image as PILImage
-                pil_img = PILImage.open(img_io)
+                pil_img = PILImage.open(_io.BytesIO(img_data))
+                if pil_img.mode in ("RGBA", "P"):
+                    pil_img = pil_img.convert("RGB")
                 w, h = pil_img.size
+                if max(w, h) > 800:
+                    ratio = 800 / max(w, h)
+                    pil_img = pil_img.resize((int(w * ratio), int(h * ratio)), PILImage.LANCZOS)
+                comp_buf = _io.BytesIO()
+                pil_img.save(comp_buf, format="JPEG", quality=70, optimize=True)
+                comp_buf.seek(0)
+                w2, h2 = pil_img.size
                 max_w = 60 * mm
                 max_h = 45 * mm
-                ratio = min(max_w / w * 72 / 96, max_h / h * 72 / 96)
-                img_io.seek(0)
-                item_flow.append(RLImage(img_io, width=w * ratio * 96 / 72, height=h * ratio * 96 / 72))
+                ratio2 = min(max_w / w2, max_h / h2)
+                item_flow.append(RLImage(comp_buf, width=w2 * ratio2, height=h2 * ratio2))
             except Exception:
                 item_flow.append(Paragraph(f"[Photo: {p.get('title', 'image')}]", styles["Small"]))
 
         story.append(KeepTogether(item_flow))
         story.append(Spacer(1, 6))
 
-    doc.build(story)
+    doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
     buf.seek(0)
     return Response(
         content=buf.read(),
@@ -1876,6 +1909,238 @@ async def create_pin(
 async def delete_pin(pin_id: str, user: dict = Depends(get_current_user)):
     await db.pins.delete_one({"id": pin_id})
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ Recently Deleted
+@api_router.get("/admin/deleted")
+async def list_deleted(user: dict = Depends(require_admin)):
+    """List soft-deleted visis with who deleted them and when."""
+    deleted = await db.visis.find({"is_deleted": True}).sort("deleted_at", -1).to_list(500)
+    out = []
+    for v in deleted:
+        sv = clean(v)
+        sv["status"] = compute_status(v)
+        sv["progress_done"], sv["progress_total"] = progress(v)
+        out.append(sv)
+    return out
+
+
+@api_router.post("/admin/restore/{visi_id}")
+async def admin_restore_visi(visi_id: str, user: dict = Depends(require_admin)):
+    """Admin-only restore of a soft-deleted visi."""
+    v = await db.visis.find_one({"id": visi_id})
+    if not v:
+        raise HTTPException(status_code=404, detail="Visi not found")
+    await db.visis.update_one({"id": visi_id}, {"$set": {"is_deleted": False, "deleted_at": None, "deleted_by": None, "last_updated": now_iso()}})
+    await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": visi_id, "user": user["name"], "text": f"restored Visi {v.get('code')}", "type": "restore", "created_at": now_iso()})
+    return {"ok": True, "id": visi_id}
+
+
+# ------------------------------------------------------------------ Progress Claim
+@api_router.get("/reports/progress-claim")
+async def progress_claim_pdf(
+    project_id: str,
+    request: Request,
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    building: Optional[str] = Query(None),
+    trade: Optional[str] = Query(None),
+    auth: str = Query(None),
+):
+    """Generate a Progress Claim PDF with only completed items and photos."""
+    verify_token(request, auth)
+    from progress_claim import generate_progress_claim_pdf
+
+    raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
+    visis = [serialize_visi(v) for v in raw]
+    locs = [clean(l) for l in await db.locations.find({"project_id": project_id}).to_list(2000)]
+    companies = {c["id"]: c["name"] for c in await db.companies.find().to_list(500)}
+    project = clean(await db.projects.find_one({"id": project_id}))
+
+    vids = [v["id"] for v in visis]
+    atts = await db.attachments.find({"visi_id": {"$in": vids}, "is_deleted": False}).to_list(5000)
+    atts_by_visi = {}
+    for a in atts:
+        atts_by_visi.setdefault(a["visi_id"], []).append(a)
+
+    pdf_bytes = generate_progress_claim_pdf(
+        project=project,
+        visis=visis,
+        locs=locs,
+        companies=companies,
+        attachments_by_visi=atts_by_visi,
+        storage_getter=get_object,
+        date_from=date_from,
+        date_to=date_to,
+        building_filter=building,
+        trade_filter=trade,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="progress-claim-{project_id[:8]}.pdf"'},
+    )
+
+
+@api_router.get("/reports/progress-claim/excel")
+async def progress_claim_excel(
+    project_id: str,
+    request: Request,
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    building: Optional[str] = Query(None),
+    trade: Optional[str] = Query(None),
+    auth: str = Query(None),
+):
+    """Excel summary of completed items for accounts."""
+    verify_token(request, auth)
+    raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
+    visis = [serialize_visi(v) for v in raw]
+    locs = [clean(l) for l in await db.locations.find({"project_id": project_id}).to_list(2000)]
+    companies = {c["id"]: c["name"] for c in await db.companies.find().to_list(500)}
+
+    byid = {l["id"]: l for l in locs}
+    def loc_path(lid):
+        names, cur, seen = [], byid.get(lid), 0
+        while cur and seen < 30:
+            names.insert(0, cur["name"])
+            cur = byid.get(cur.get("parent_id"))
+            seen += 1
+        return " / ".join(names)
+    def top_bld(lid):
+        cur, seen = byid.get(lid), 0
+        while cur and cur.get("parent_id") and seen < 30:
+            p = byid.get(cur["parent_id"])
+            if not p: break
+            cur = p
+            seen += 1
+        return cur
+
+    completed = [v for v in visis if _is_complete_visi(v)]
+    if building:
+        completed = [v for v in completed if (top_bld(v["location_id"]) or {}).get("name") == building]
+    if trade:
+        completed = [v for v in completed if _trade_of(v) == trade]
+    if date_from:
+        completed = [v for v in completed if v.get("closed_at") and v["closed_at"] >= date_from]
+    if date_to:
+        completed = [v for v in completed if v.get("closed_at") and v["closed_at"] <= date_to]
+
+    import io as _io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Progress Claim"
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
+    thin = Border(
+        left=Side(style="thin", color="E2E8F0"), right=Side(style="thin", color="E2E8F0"),
+        top=Side(style="thin", color="E2E8F0"), bottom=Side(style="thin", color="E2E8F0"),
+    )
+    headers = ["Code", "Trade", "Building", "Location", "Assignee", "Completed Date", "Completed By"]
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = thin
+    for row_idx, v in enumerate(completed, 2):
+        row_data = [
+            v["code"], _trade_of(v), (top_bld(v["location_id"]) or {}).get("name", ""),
+            loc_path(v["location_id"]), companies.get(v.get("assignee_company_id"), "-"),
+            v.get("closed_at", "")[:10] if v.get("closed_at") else "",
+            v.get("closed_by", ""),
+        ]
+        for col, val in enumerate(row_data, 1):
+            cell = ws.cell(row=row_idx, column=col, value=val)
+            cell.border = thin
+    for i, w in enumerate([14, 20, 20, 40, 24, 14, 16], 1):
+        ws.column_dimensions[chr(64 + i)].width = w
+    ws.freeze_panes = "A2"
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(
+        content=buf.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=progress-claim.xlsx"},
+    )
+
+
+def _is_complete_visi(v: dict) -> bool:
+    if v.get("override_status") == "na":
+        return True
+    steps = v.get("steps", [])
+    if not steps:
+        return False
+    return all(s.get("status") == "complete" for s in steps)
+
+
+# ------------------------------------------------------------------ Bulk Add Doors
+@api_router.post("/admin/bulk-doors")
+async def bulk_add_doors(body: dict, user: dict = Depends(require_admin)):
+    """Create multiple door visis from a CSV-parsed list. Skips duplicates."""
+    project_id = body.get("project_id")
+    if not project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    doors = body.get("doors", [])
+    if not doors:
+        raise HTTPException(status_code=400, detail="No doors provided")
+
+    # Find the Door template
+    tmpl = await db.templates.find_one({"name": "Door"})
+    if not tmpl:
+        raise HTTPException(status_code=404, detail="Door template not found")
+
+    # Get all locations for duplicate checking
+    existing = set()
+    async for v in db.visis.find({"project_id": project_id, "template_name": "Door"}, {"location_id": 1, "door_id": 1}):
+        existing.add((v.get("location_id"), v.get("door_id")))
+
+    locs = {l["id"]: l for l in await db.locations.find({"project_id": project_id}).to_list(2000)}
+    locs_by_name = {}
+    for l in locs.values():
+        key = l["name"].lower().strip()
+        locs_by_name.setdefault(key, []).append(l)
+
+    created = []
+    skipped = []
+    for d in doors:
+        loc_name = (d.get("location") or "").strip()
+        door_label = (d.get("door_label") or d.get("door_number") or "").strip()
+        matched_locs = locs_by_name.get(loc_name.lower(), [])
+        if not matched_locs:
+            skipped.append({**d, "reason": "Location not found"})
+            continue
+        loc = matched_locs[0]
+        if (loc["id"], door_label) in existing:
+            skipped.append({**d, "reason": "Duplicate (location + door label already exists)"})
+            continue
+        existing.add((loc["id"], door_label))
+        steps = [{"step_id": s["id"], "label": s["label"], "type": s["type"], "status": "pending",
+                  "assignee_company_id": s.get("assignee_company_id"),
+                  "requirements": [{"id": r["id"], "label": r["label"], "attachment_id": None} for r in s.get("requirements", [])]}
+                 for s in tmpl["steps"]]
+        count = await db.visis.count_documents({})
+        v = {
+            "id": str(uuid.uuid4()), "code": f"CC-{67000 + count + 1}",
+            "visi_type": "Inspection", "template_id": tmpl["id"], "template_name": "Door",
+            "template_revision": tmpl.get("revision", 1), "location_id": loc["id"], "project_id": project_id,
+            "assignee_company_id": d.get("assignee_company_id"), "reviewer_company_id": None,
+            "visible_to": [], "steps": steps, "override_status": None,
+            "system": tmpl.get("system"), "stage": tmpl.get("stage"), "discipline": tmpl.get("discipline"),
+            "door_id": door_label, "due_date": None,
+            "created_by": user["name"], "created_by_company": user.get("company_id"),
+            "created_at": now_iso(), "last_updated": now_iso(), "closed_at": None, "closed_by": None,
+        }
+        await db.visis.insert_one(dict(v))
+        created.append({"code": v["code"], "door_id": door_label, "location": loc["name"]})
+
+    await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": None, "user": user["name"],
+        "text": f"Bulk added {len(created)} doors ({len(skipped)} skipped)", "type": "bulk_create", "created_at": now_iso()})
+    return {"created": created, "skipped": skipped, "total_created": len(created), "total_skipped": len(skipped)}
 
 
 # ------------------------------------------------------------------ App wiring
