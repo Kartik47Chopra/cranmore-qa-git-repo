@@ -251,7 +251,9 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def clean(doc: dict) -> dict:
+def clean(doc: dict | None) -> dict | None:
+    if doc is None:
+        return None
     doc = dict(doc)
     doc.pop("_id", None)
     doc.pop("file_data", None)  # binary field — not JSON-serialisable, served via dedicated endpoints
