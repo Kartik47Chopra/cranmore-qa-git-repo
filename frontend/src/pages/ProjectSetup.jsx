@@ -4,18 +4,33 @@ import { useProject } from "@/context/ProjectContext";
 import { useAuth } from "@/context/AuthContext";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import LocationManager from "@/components/LocationManager";
-import { Building, Users, FileStack, MapPin } from "lucide-react";
+import { Building, Users, FileStack, MapPin, Mail } from "lucide-react";
+import { toast } from "sonner";
 
 export default function ProjectSetup() {
   const { projectId, project } = useProject();
   const { companies, user } = useAuth();
   const [templates, setTemplates] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [accountsEmail, setAccountsEmail] = useState("");
 
   useEffect(() => {
     api.get("/templates").then(({ data }) => setTemplates(data));
     if (projectId) api.get(`/projects/${projectId}/locations`).then(({ data }) => setLocations(data));
   }, [projectId]);
+
+  useEffect(() => {
+    if (project) setAccountsEmail(project.accounts_email || "");
+  }, [project]);
+
+  const saveAccountsEmail = async () => {
+    try {
+      await api.patch(`/projects/${projectId}`, { accounts_email: accountsEmail });
+      toast.success("Accounts email saved");
+    } catch {
+      toast.error("Could not save accounts email");
+    }
+  };
 
   const compName = (id) => companies.find((c) => c.id === id)?.name || "—";
 
@@ -34,7 +49,15 @@ export default function ProjectSetup() {
           </TabsList>
 
           <TabsContent value="companies" className="flex-1 overflow-y-auto px-6 py-4 mt-0">
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 max-w-4xl">
+            <div className="max-w-4xl mb-6 p-4 bg-slate-50 border rounded-lg">
+              <label className="text-sm font-bold flex items-center gap-1.5 mb-2"><Mail size={14} /> Accounts Email (optional)</label>
+              <p className="text-xs text-slate-500 mb-2">Used for the Progress Claim email feature. Leave blank if not needed.</p>
+              <div className="flex gap-2">
+                <input type="email" placeholder="accounts@company.com.au" value={accountsEmail} onChange={(e) => setAccountsEmail(e.target.value)} className="border rounded px-3 py-1.5 text-sm flex-1" />
+                <button onClick={saveAccountsEmail} className="px-4 py-1.5 text-sm bg-slate-800 text-white rounded hover:bg-slate-700">Save</button>
+              </div>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {companies.map((c) => (
                 <div key={c.id} className="bg-white border rounded-lg p-4 flex items-center gap-3" data-testid={`company-card-${c.id}`}>
                   <div className="h-10 w-10 rounded-md flex items-center justify-center text-white" style={{ backgroundColor: c.color || "#64748b" }}>

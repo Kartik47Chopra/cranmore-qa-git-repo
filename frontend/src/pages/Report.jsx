@@ -1,11 +1,18 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { api, fileUrl, API } from "@/lib/api";
 import { useProject } from "@/context/ProjectContext";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Printer, FileSpreadsheet, FileDown, CheckCircle2, Circle, Camera, Loader2, FileCheck2, Mail } from "lucide-react";
+import { Printer, FileSpreadsheet, FileDown, CheckCircle2, Circle, Camera, Loader2, FileCheck2 } from "lucide-react";
 import { toast } from "sonner";
+
+const APP_VERSION = "v2.0 — 2026-10-05";
+
+function fmtDate(d) {
+  if (!d) return "";
+  return d.toISOString().slice(0, 10);
+}
 
 export default function Report() {
   const { projectId, project } = useProject();
@@ -13,13 +20,40 @@ export default function Report() {
   const [summary, setSummary] = useState(null);
   const [detail, setDetail] = useState(null);
   const [showClaim, setShowClaim] = useState(false);
-  const [claimFilters, setClaimFilters] = useState({ dateFrom: "", dateTo: "", building: "", trade: "" });
+  const [claimFilters, setClaimFilters] = useState({ dateFrom: "", dateTo: "", building: "", trade: "", onlyUnclaimed: false });
+  const [preview, setPreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     if (!projectId) return;
     api.get(`/reports/summary?project_id=${projectId}`).then(({ data }) => setSummary(data));
     api.get(`/reports/detail?project_id=${projectId}`).then(({ data }) => setDetail(data));
   }, [projectId]);
+
+  // Live preview of completed items matching filters
+  const fetchPreview = useCallback(async () => {
+    if (!projectId || !showClaim) return;
+    setPreviewLoading(true);
+    try {
+      const p = new URLSearchParams({ project_id: projectId });
+      if (claimFilters.dateFrom) p.append("date_from", claimFilters.dateFrom);
+      if (claimFilters.dateTo) p.append("date_to", claimFilters.dateTo);
+      if (claimFilters.building) p.append("building", claimFilters.building);
+      if (claimFilters.trade) p.append("trade", claimFilters.trade);
+      if (claimFilters.onlyUnclaimed) p.append("only_unclaimed", "true");
+      const { data } = await api.get(`/reports/progress-claim/preview?${p.toString()}`);
+      setPreview(data);
+    } catch {
+      setPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [projectId, showClaim, claimFilters.dateFrom, claimFilters.dateTo, claimFilters.building, claimFilters.trade, claimFilters.onlyUnclaimed]);
+
+  useEffect(() => {
+    const t = setTimeout(fetchPreview, 300);
+    return () => clearTimeout(t);
+  }, [fetchPreview]);
 
   const pct = (d, t) => (t > 0 ? Math.round((d / t) * 100) : 0);
 
@@ -50,12 +84,19 @@ export default function Report() {
   };
 
   const downloadClaim = async (type) => {
+    if (preview && preview.total === 0) {
+      toast.error("No completed items match these filters. Adjust the filters and try again.");
+      return;
+    }
     const p = new URLSearchParams({ project_id: projectId });
     if (claimFilters.dateFrom) p.append("date_from", claimFilters.dateFrom);
     if (claimFilters.dateTo) p.append("date_to", claimFilters.dateTo);
     if (claimFilters.building) p.append("building", claimFilters.building);
     if (claimFilters.trade) p.append("trade", claimFilters.trade);
-    const filename = type === "pdf" ? "progress-claim.pdf" : "progress-claim.xlsx";
+    if (claimFilters.onlyUnclaimed) p.append("only_unclaimed", "true");
+    const safeName = (project?.name || "project").replace(/\s+/g, "-").replace(/\//g, "-");
+    const fileDate = fmtDate(new Date());
+    const filename = `Progress-Claim_${safeName}_${fileDate}.${type === "pdf" ? "pdf" : "xlsx"}`;
     setDownloading(filename);
     try {
       const res = await api.get(`/reports/progress-claim${type === "excel" ? "/excel" : ""}?${p.toString()}`, { responseType: "blob" });
@@ -76,6 +117,24 @@ export default function Report() {
       toast.error(msg);
     } finally {
       setDownloading(null);
+    }
+  };
+
+  const setQuickDate = (range) => {
+    const today = new Date();
+    if (range === "all") {
+      setClaimFilters({ ...claimFilters, dateFrom: "", dateTo: "" });
+    } else if (range === "week") {
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - today.getDay() + 1);
+      setClaimFilters({ ...claimFilters, dateFrom: fmtDate(monday), dateTo: fmtDate(today) });
+    } else if (range === "month") {
+      const first = new Date(today.getFullYear(), today.getMonth(), 1);
+      setClaimFilters({ ...claimFilters, dateFrom: fmtDate(first), dateTo: fmtDate(today) });
+    } else if (range === "7days") {
+      const ago = new Date(today);
+      ago.setDate(today.getDate() - 7);
+      setClaimFilters({ ...claimFilters, dateFrom: fmtDate(ago), dateTo: fmtDate(today) });
     }
   };
 
@@ -129,7 +188,13 @@ export default function Report() {
         {showClaim && (
           <div className="mt-4 p-4 bg-slate-50 border rounded-lg">
             <h3 className="font-bold text-sm mb-3">Progress Claim — Completed Works Export for Accounts</h3>
-            <p className="text-xs text-slate-500 mb-3">Generates a single PDF with only completed items, photos, and a summary. Send it to Emma in accounts for progress claims.</p>
+            <p className="text-xs text-slate-500 mb-3">Generates a single PDF with only completed items, photos, and a summary. Send it to accounts for progress claims.</p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              <Button size="sm" variant="outline" onClick={() => setQuickDate("all")} data-testid="quick-all-time">All time</Button>
+              <Button size="sm" variant="outline" onClick={() => setQuickDate("week")} data-testid="quick-this-week">This week</Button>
+              <Button size="sm" variant="outline" onClick={() => setQuickDate("month")} data-testid="quick-this-month">This month</Button>
+              <Button size="sm" variant="outline" onClick={() => setQuickDate("7days")} data-testid="quick-last-7">Last 7 days</Button>
+            </div>
             <div className="flex flex-wrap gap-3 items-end">
               <div>
                 <label className="text-[11px] font-bold uppercase text-slate-500 block mb-1">Completed from</label>
@@ -153,14 +218,30 @@ export default function Report() {
                   {allTrades.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
-              <Button onClick={() => downloadClaim("pdf")} disabled={downloading} className="bg-blue-600 hover:bg-blue-700 text-white" data-testid="claim-download-pdf">
-                {downloading === "progress-claim.pdf" ? <Loader2 size={16} className="mr-2 animate-spin" /> : <FileDown size={16} className="mr-2" />}
+              <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer pb-1.5">
+                <input type="checkbox" checked={claimFilters.onlyUnclaimed} onChange={(e) => setClaimFilters({ ...claimFilters, onlyUnclaimed: e.target.checked })} className="rounded" />
+                Only items not yet claimed
+              </label>
+              <Button onClick={() => downloadClaim("pdf")} disabled={downloading || (preview?.total === 0)} className="bg-blue-600 hover:bg-blue-700 text-white" data-testid="claim-download-pdf">
+                {downloading?.endsWith(".pdf") ? <Loader2 size={16} className="mr-2 animate-spin" /> : <FileDown size={16} className="mr-2" />}
                 Download PDF
               </Button>
               <Button onClick={() => downloadClaim("excel")} disabled={downloading} variant="outline" data-testid="claim-download-excel">
-                {downloading === "progress-claim.xlsx" ? <Loader2 size={16} className="mr-2 animate-spin" /> : <FileSpreadsheet size={16} className="mr-2" />}
+                {downloading?.endsWith(".xlsx") ? <Loader2 size={16} className="mr-2 animate-spin" /> : <FileSpreadsheet size={16} className="mr-2" />}
                 Excel Summary
               </Button>
+            </div>
+            {/* Live preview line */}
+            <div className="mt-3 text-sm">
+              {previewLoading ? (
+                <span className="text-slate-400 flex items-center gap-1.5"><Loader2 size={14} className="animate-spin" /> Counting completed items…</span>
+              ) : preview ? (
+                preview.total === 0 ? (
+                  <span className="text-amber-600 font-medium">⚠ No completed items match these filters. Adjust the filters or clear dates to see all completed works.</span>
+                ) : (
+                  <span className="text-slate-700 font-medium">✓ {preview.total} completed items match these filters ({preview.with_photos} with photos).</span>
+                )
+              ) : null}
             </div>
           </div>
         )}
@@ -251,6 +332,11 @@ export default function Report() {
                 )}
               </div>
             ))}
+          </div>
+
+          {/* Version / last deployed footer */}
+          <div className="mt-8 pt-4 border-t text-center text-xs text-slate-400">
+            {APP_VERSION}
           </div>
         </div>
       </div>

@@ -4,11 +4,12 @@ Progress Claim PDF generator — produces a clean, professional PDF with:
 - Detail section grouped by Building > Location > Trade
 - Photo thumbnails in a grid (6-8 items per page)
 - Proper text wrapping (Paragraphs in table cells, no overlap)
-- Page numbers, repeated headers, photos kept together
+- Page X of Y, repeated headers, photos kept together
+- Melbourne time for generated timestamp
 """
 import io
-import asyncio
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -18,9 +19,39 @@ from reportlab.platypus import (
     PageBreak, KeepTogether,
 )
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.pdfgen import canvas as rl_canvas
+
+from status_utils import is_visi_complete, completed_date
+
+MELBOURNE_TZ = ZoneInfo("Australia/Melbourne")
 
 
-def _compress_image(img_data: bytes, max_side: int = 800, quality: int = 70) -> bytes:
+class NumberedCanvas(rl_canvas.Canvas):
+    """Canvas subclass that draws 'Page X of Y' on every page."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        num_pages = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self._draw_page_number(num_pages)
+            super().showPage()
+        super().save()
+
+    def _draw_page_number(self, total):
+        self.setFont("Helvetica", 8)
+        self.setFillColor(colors.HexColor("#94A3B8"))
+        self.drawCentredString(A4[0] / 2, 10 * mm, f"Page {self._pageNumber} of {total}")
+
+
+def _compress_image(img_data: bytes, max_side: int = 1000, quality: int = 70) -> bytes:
     """Compress an image to max_side px on the longest edge, JPEG quality."""
     try:
         from PIL import Image as PILImage
@@ -36,6 +67,13 @@ def _compress_image(img_data: bytes, max_side: int = 800, quality: int = 70) -> 
         return buf.getvalue()
     except Exception:
         return img_data
+
+
+def _trade_name(v: dict) -> str:
+    name = v.get("template_name") or ""
+    if name.startswith("Misc"):
+        return "Miscellaneous"
+    return name
 
 
 def generate_progress_claim_pdf(
@@ -72,9 +110,8 @@ def generate_progress_claim_pdf(
             seen += 1
         return cur
 
-    # Filter to completed items only
-    completed = [v for v in visis if v.get("status") == "closed" or v.get("override_status") == "na" and _all_steps_done(v)]
-    completed = [v for v in visis if _is_complete(v)]
+    # Filter to completed items only — shared logic from status_utils
+    completed = [v for v in visis if is_visi_complete(v)]
 
     # Apply filters
     if building_filter:
@@ -82,9 +119,9 @@ def generate_progress_claim_pdf(
     if trade_filter:
         completed = [v for v in completed if _trade_name(v) == trade_filter]
     if date_from:
-        completed = [v for v in completed if v.get("closed_at") and v["closed_at"] >= date_from]
+        completed = [v for v in completed if (completed_date(v) or "") >= date_from]
     if date_to:
-        completed = [v for v in completed if v.get("closed_at") and v["closed_at"] <= date_to]
+        completed = [v for v in completed if (completed_date(v) or "") <= date_to]
 
     # Sort by Building > Location > Trade
     completed.sort(key=lambda v: (
@@ -105,7 +142,7 @@ def generate_progress_claim_pdf(
 
     # Styles
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="CoverTitle", fontName="Helvetica-Bold", fontSize=24, textColor=colors.HexColor("#0F172A"), alignment=TA_CENTER, spaceAfter=8))
+    styles.add(ParagraphStyle(name="CoverTitle", fontName="Helvetica-Bold", fontSize=24, textColor=colors.HexColor("#0F172A"), alignment=TA_CENTER, spaceAfter=20))
     styles.add(ParagraphStyle(name="CoverSub", fontName="Helvetica", fontSize=12, textColor=colors.HexColor("#64748B"), alignment=TA_CENTER, spaceAfter=4))
     styles.add(ParagraphStyle(name="SectionTitle", fontName="Helvetica-Bold", fontSize=14, spaceAfter=6, spaceBefore=12, textColor=colors.HexColor("#0F172A")))
     styles.add(ParagraphStyle(name="ItemTitle", fontName="Helvetica-Bold", fontSize=10, spaceAfter=2, textColor=colors.HexColor("#1E293B")))
@@ -118,17 +155,6 @@ def generate_progress_claim_pdf(
     page_w, page_h = A4
     usable_w = page_w - 30 * mm  # 15mm margins each side
 
-    # Page number callback
-    page_count = [0]
-
-    def on_page(canvas, doc):
-        page_count[0] += 1
-        canvas.saveState()
-        canvas.setFont("Helvetica", 8)
-        canvas.setFillColor(colors.HexColor("#94A3B8"))
-        canvas.drawCentredString(page_w / 2, 10 * mm, f"Page {page_count[0]}")
-        canvas.restoreState()
-
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
         topMargin=18 * mm, bottomMargin=18 * mm,
@@ -139,26 +165,29 @@ def generate_progress_claim_pdf(
     story = []
 
     # ---- Cover Page ----
-    story.append(Spacer(1, 60 * mm))
+    story.append(Spacer(1, 50 * mm))
     story.append(Paragraph(project.get("name", "Progress Claim"), styles["CoverTitle"]))
-    story.append(Paragraph(project.get("address", ""), styles["CoverSub"]))
-    story.append(Spacer(1, 10 * mm))
-    story.append(Paragraph("Progress Claim Report", ParagraphStyle("cl", fontName="Helvetica-Bold", fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor("#16A34A"))))
     story.append(Spacer(1, 6 * mm))
+    story.append(Paragraph(project.get("address", "") or "", styles["CoverSub"]))
+    story.append(Spacer(1, 15 * mm))
+    story.append(Paragraph("Progress Claim Report", ParagraphStyle("cl", fontName="Helvetica-Bold", fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor("#16A34A"))))
+    story.append(Spacer(1, 8 * mm))
 
-    date_label = ""
+    date_label = "All completed works"
     if date_from and date_to:
         date_label = f"{date_from[:10]} to {date_to[:10]}"
+    elif date_from:
+        date_label = f"from {date_from[:10]}"
     elif date_to:
         date_label = f"up to {date_to[:10]}"
-    else:
-        date_label = "All completed works"
+
+    now_melb = datetime.now(MELBOURNE_TZ)
 
     cover_info = [
         ["Company:", "Cranmore Carpenters"],
         ["Drawing set:", "225-MB-CHC"],
         ["Date range:", date_label],
-        ["Generated:", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")],
+        ["Generated:", now_melb.strftime("%Y-%m-%d %H:%M Melbourne time")],
         ["Total items completed:", str(len(completed))],
     ]
     cover_tbl = Table(
@@ -204,113 +233,106 @@ def generate_progress_claim_pdf(
     story.append(PageBreak())
 
     # ---- Detail Section ----
-    current_building = None
-    current_location = None
-    items_on_page = 0
-
-    for v in completed:
-        bld = (top_building(v["location_id"]) or {}).get("name", "General")
-        loc = loc_path(v["location_id"])
-        trade = _trade_name(v)
-
-        # Building header
-        if bld != current_building:
-            current_building = bld
-            current_location = None
-            story.append(Paragraph(bld, styles["SectionTitle"]))
-            items_on_page = 0
-
-        # Location sub-header
-        if loc != current_location:
-            current_location = loc
-            story.append(Paragraph(f"<b>{loc}</b>", ParagraphStyle("loc", fontName="Helvetica-Bold", fontSize=11, textColor=colors.HexColor("#475569"), spaceBefore=6, spaceAfter=3)))
-            items_on_page = 0
-
-        # Item block
-        item_flow = []
-        item_flow.append(Paragraph(
-            f"{trade} <font color='#94A3B8' size=7>{v.get('code', '')}</font>",
-            styles["ItemTitle"],
-        ))
-        closed_at = v.get("closed_at")
-        closed_by = v.get("closed_by", "—")
-        date_str = ""
-        if closed_at:
-            try:
-                date_str = datetime.fromisoformat(closed_at).strftime("%d/%m/%Y")
-            except Exception:
-                date_str = closed_at[:10]
-        item_flow.append(Paragraph(
-            f"Completed: {date_str} | By: {closed_by} | Assignee: {companies.get(v.get('assignee_company_id'), '—')}",
-            styles["Small"],
-        ))
-
-        # Photos — up to 2 per item, compressed thumbnails
-        photos = attachments_by_visi.get(v["id"], [])
-        photo_cells = []
-        for p in photos[:2]:
-            try:
-                raw_data, _ = storage_getter(p["storage_path"])
-                compressed = _compress_image(raw_data, max_side=600, quality=65)
-                img_io = io.BytesIO(compressed)
-                from PIL import Image as PILImage
-                pil_img = PILImage.open(img_io)
-                w, h = pil_img.size
-                target_w = 75 * mm
-                target_h = 50 * mm
-                ratio = min(target_w / w, target_h / h)
-                img_io.seek(0)
-                photo_cells.append(RLImage(img_io, width=w * ratio, height=h * ratio))
-            except Exception:
-                photo_cells.append(Paragraph(f"[Photo: {p.get('title', 'image')}]", styles["Small"]))
-
-        if photo_cells:
-            if len(photo_cells) == 1:
-                item_flow.append(Spacer(1, 3))
-                item_flow.append(photo_cells[0])
-            else:
-                # Two photos side by side
-                photo_tbl = Table([photo_cells], colWidths=[75 * mm, 75 * mm])
-                photo_tbl.setStyle(TableStyle([
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 2),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-                    ("TOPPADDING", (0, 0), (-1, -1), 2),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                ]))
-                item_flow.append(Spacer(1, 3))
-                item_flow.append(photo_tbl)
-
-        item_flow.append(Spacer(1, 8))
-        story.append(KeepTogether(item_flow))
-        items_on_page += 1
-
-        # Page break after ~6 items to keep it clean
-        if items_on_page >= 6:
-            story.append(PageBreak())
-            items_on_page = 0
-
     if not completed:
         story.append(Paragraph("No completed items found for the selected filters.", styles["Small"]))
+    else:
+        current_building = None
+        current_location = None
+        items_on_page = 0
 
-    doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
+        for v in completed:
+            bld = (top_building(v["location_id"]) or {}).get("name", "General")
+            loc = loc_path(v["location_id"])
+            trade = _trade_name(v)
+
+            # Building header
+            if bld != current_building:
+                current_building = bld
+                current_location = None
+                story.append(Paragraph(bld, styles["SectionTitle"]))
+                items_on_page = 0
+
+            # Location sub-header
+            if loc != current_location:
+                current_location = loc
+                story.append(Paragraph(f"<b>{loc}</b>", ParagraphStyle("loc", fontName="Helvetica-Bold", fontSize=11, textColor=colors.HexColor("#475569"), spaceBefore=6, spaceAfter=3)))
+                items_on_page = 0
+
+            # Item block
+            item_flow = []
+            item_label = v.get("door_id") or trade
+            item_flow.append(Paragraph(
+                f"{item_label} <font color='#94A3B8' size=7>{v.get('code', '')}</font>",
+                styles["ItemTitle"],
+            ))
+            cdate = completed_date(v)
+            closed_by = v.get("closed_by") or v.get("created_by") or "—"
+            date_str = ""
+            if cdate:
+                try:
+                    date_str = datetime.fromisoformat(cdate).strftime("%d/%m/%Y")
+                except Exception:
+                    date_str = cdate[:10]
+            item_flow.append(Paragraph(
+                f"Completed: {date_str or 'N/A'} | By: {closed_by} | Assignee: {companies.get(v.get('assignee_company_id'), '—')}",
+                styles["Small"],
+            ))
+
+            # Photos — up to 2 per item, compressed thumbnails
+            photos = attachments_by_visi.get(v["id"], [])
+            photo_cells = []
+            photo_labels = []
+            for p in photos[:2]:
+                try:
+                    raw_data, _ = storage_getter(p["storage_path"])
+                    compressed = _compress_image(raw_data, max_side=1000, quality=70)
+                    img_io = io.BytesIO(compressed)
+                    from PIL import Image as PILImage
+                    pil_img = PILImage.open(img_io)
+                    w, h = pil_img.size
+                    target_w = 75 * mm
+                    target_h = 50 * mm
+                    ratio = min(target_w / w, target_h / h)
+                    img_io.seek(0)
+                    photo_cells.append(RLImage(img_io, width=w * ratio, height=h * ratio))
+                    photo_labels.append(Paragraph(p.get("title", "Photo"), styles["PhotoLabel"]))
+                except Exception:
+                    photo_cells.append(Paragraph("[Photo unavailable]", styles["Small"]))
+                    photo_labels.append(Paragraph("Photo unavailable", styles["PhotoLabel"]))
+
+            # No photo placeholder
+            if not photo_cells:
+                no_photo_style = ParagraphStyle("np", fontName="Helvetica", fontSize=9, textColor=colors.HexColor("#94A3B8"), alignment=TA_CENTER, borderPadding=8, borderWidth=0.5, borderColor=colors.HexColor("#E2E8F0"))
+                photo_cells.append(Paragraph("No photo", no_photo_style))
+                photo_labels.append(Paragraph("No photo", styles["PhotoLabel"]))
+
+            # Build photo grid (1 or 2 photos side by side with labels)
+            if len(photo_cells) == 1:
+                photo_grid = Table([[photo_cells[0]], [photo_labels[0]]], colWidths=[80 * mm])
+            else:
+                photo_grid = Table(
+                    [[photo_cells[0], photo_cells[1]], [photo_labels[0], photo_labels[1]]],
+                    colWidths=[75 * mm, 75 * mm],
+                )
+            photo_grid.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ]))
+            item_flow.append(Spacer(1, 3))
+            item_flow.append(photo_grid)
+            item_flow.append(Spacer(1, 10))
+            story.append(KeepTogether(item_flow))
+            items_on_page += 1
+
+            # Page break after ~6 items to keep it clean
+            if items_on_page >= 6:
+                story.append(PageBreak())
+                items_on_page = 0
+
+    doc.build(story, canvasmaker=NumberedCanvas)
     buf.seek(0)
     return buf.read()
-
-
-def _is_complete(v: dict) -> bool:
-    """Check if a visi is fully complete (all steps done, no override blocking)."""
-    if v.get("override_status") in ("na",):
-        return True
-    steps = v.get("steps", [])
-    if not steps:
-        return False
-    return all(s.get("status") == "complete" for s in steps)
-
-
-def _trade_name(v: dict) -> str:
-    name = v.get("template_name") or ""
-    if name.startswith("Misc"):
-        return "Miscellaneous"
-    return name

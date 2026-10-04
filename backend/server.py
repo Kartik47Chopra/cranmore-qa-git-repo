@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId, Binary
 from pydantic import BaseModel, Field
+from status_utils import is_step_complete, is_visi_complete, completed_date
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("siteqa")
@@ -265,7 +266,7 @@ def compute_status(visi: dict) -> str:
         return visi["override_status"]
     steps = visi.get("steps", [])
     total = len(steps)
-    done = sum(1 for s in steps if s.get("status") == "complete")
+    done = sum(1 for s in steps if is_step_complete(s))
     if total == 0:
         return "open"
     if done == 0:
@@ -277,7 +278,7 @@ def compute_status(visi: dict) -> str:
 
 def progress(visi: dict):
     steps = visi.get("steps", [])
-    return sum(1 for s in steps if s.get("status") == "complete"), len(steps)
+    return sum(1 for s in steps if is_step_complete(s)), len(steps)
 
 
 def days_open(visi: dict) -> int:
@@ -407,6 +408,16 @@ async def get_project(project_id: str, user: dict = Depends(get_current_user)):
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
     return clean(p)
+
+
+@api_router.patch("/projects/{project_id}")
+async def update_project(project_id: str, body: dict, user: dict = Depends(get_current_user)):
+    allowed = {"accounts_email", "name", "address"}
+    updates = {k: body[k] for k in allowed if k in body}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    await db.projects.update_one({"id": project_id}, {"$set": updates})
+    return clean(await db.projects.find_one({"id": project_id}))
 
 
 @api_router.get("/projects/{project_id}/locations")
@@ -622,7 +633,7 @@ async def toggle_step(visi_id: str, body: dict, user: dict = Depends(get_current
         for s in v["steps"][:target_idx]:
             s["status"] = "complete"
     v["last_updated"] = now_iso()
-    if all(s["status"] == "complete" for s in v["steps"]) and not v.get("override_status"):
+    if all(is_step_complete(s) for s in v["steps"]):
         v["closed_at"] = v.get("closed_at") or now_iso()
         v["closed_by"] = user["name"]
     else:
@@ -1283,10 +1294,16 @@ async def report_summary(project_id: str, user: dict = Depends(get_current_user)
         g["total"] += 1
         g["step_done"] += v["progress_done"]
         g["step_total"] += v["progress_total"]
-        st = v["status"]
-        g[st if st in ("closed", "in_progress", "open") else "other"] += 1
+        if is_visi_complete(v):
+            g["closed"] += 1
+        elif v["status"] == "in_progress":
+            g["in_progress"] += 1
+        elif v["status"] == "open":
+            g["open"] += 1
+        else:
+            g["other"] += 1
     buildings = [{"building": b, "trades": [{"trade": t, **vals} for t, vals in sorted(tr.items())]} for b, tr in sorted(result.items())]
-    overall = {"total": len(visis), "closed": sum(1 for v in visis if v["status"] == "closed"),
+    overall = {"total": len(visis), "closed": sum(1 for v in visis if is_visi_complete(v)),
                "step_done": sum(v["progress_done"] for v in visis), "step_total": sum(v["progress_total"] for v in visis)}
     return {"buildings": buildings, "overall": overall, "project": clean(await db.projects.find_one({"id": project_id}))}
 
@@ -1939,8 +1956,8 @@ async def admin_restore_visi(visi_id: str, user: dict = Depends(require_admin)):
 
 
 # ------------------------------------------------------------------ Progress Claim
-@api_router.get("/reports/progress-claim")
-async def progress_claim_pdf(
+@api_router.get("/reports/progress-claim/preview")
+async def progress_claim_preview(
     project_id: str,
     request: Request,
     date_from: Optional[str] = Query(None),
@@ -1949,12 +1966,65 @@ async def progress_claim_pdf(
     trade: Optional[str] = Query(None),
     auth: str = Query(None),
 ):
+    """Return count of completed items matching filters, for live preview before generating."""
+    verify_token(request, auth)
+    only_unclaimed = request.query_params.get("only_unclaimed", "").lower() in ("1", "true", "yes")
+    raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
+    visis = [serialize_visi(v) for v in raw]
+    locs = [clean(l) for l in await db.locations.find({"project_id": project_id}).to_list(2000)]
+    byid = {l["id"]: l for l in locs}
+
+    def top_bld(lid):
+        cur, seen = byid.get(lid), 0
+        while cur and cur.get("parent_id") and seen < 30:
+            p = byid.get(cur["parent_id"])
+            if not p:
+                break
+            cur = p
+            seen += 1
+        return cur
+
+    completed = [v for v in visis if is_visi_complete(v)]
+    if only_unclaimed:
+        completed = [v for v in completed if not v.get("claimed")]
+    if building:
+        completed = [v for v in completed if (top_bld(v["location_id"]) or {}).get("name") == building]
+    if trade:
+        completed = [v for v in completed if _trade_of(v) == trade]
+    if date_from:
+        completed = [v for v in completed if (completed_date(v) or "") >= date_from]
+    if date_to:
+        completed = [v for v in completed if (completed_date(v) or "") <= date_to]
+
+    vids = [v["id"] for v in completed]
+    atts = await db.attachments.find({"visi_id": {"$in": vids}, "is_deleted": False}).to_list(5000) if vids else []
+    atts_by_visi = set()
+    for a in atts:
+        atts_by_visi.add(a["visi_id"])
+    with_photos = sum(1 for v in completed if v["id"] in atts_by_visi)
+
+    return {"total": len(completed), "with_photos": with_photos}
+
+
+@api_router.get("/reports/progress-claim")
+async def progress_claim_pdf(
+    project_id: str,
+    request: Request,
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    building: Optional[str] = Query(None),
+    trade: Optional[str] = Query(None),
+    only_unclaimed: Optional[str] = Query(None),
+    auth: str = Query(None),
+):
     """Generate a Progress Claim PDF with only completed items and photos."""
     verify_token(request, auth)
     from progress_claim import generate_progress_claim_pdf
 
     raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
     visis = [serialize_visi(v) for v in raw]
+    if only_unclaimed and only_unclaimed.lower() in ("1", "true", "yes"):
+        visis = [v for v in visis if not v.get("claimed")]
     locs = [clean(l) for l in await db.locations.find({"project_id": project_id}).to_list(2000)]
     companies = {c["id"]: c["name"] for c in await db.companies.find().to_list(500)}
     project = clean(await db.projects.find_one({"id": project_id}))
@@ -1965,6 +2035,8 @@ async def progress_claim_pdf(
     for a in atts:
         atts_by_visi.setdefault(a["visi_id"], []).append(a)
 
+    safe_name = (project.get("name") or "project").replace(" ", "-").replace("/", "-")
+    file_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     pdf_bytes = generate_progress_claim_pdf(
         project=project,
         visis=visis,
@@ -1980,7 +2052,7 @@ async def progress_claim_pdf(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="progress-claim-{project_id[:8]}.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="Progress-Claim_{safe_name}_{file_date}.pdf"'},
     )
 
 
@@ -1992,14 +2064,20 @@ async def progress_claim_excel(
     date_to: Optional[str] = Query(None),
     building: Optional[str] = Query(None),
     trade: Optional[str] = Query(None),
+    only_unclaimed: Optional[str] = Query(None),
     auth: str = Query(None),
 ):
     """Excel summary of completed items for accounts."""
     verify_token(request, auth)
     raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
     visis = [serialize_visi(v) for v in raw]
+    if only_unclaimed and only_unclaimed.lower() in ("1", "true", "yes"):
+        visis = [v for v in visis if not v.get("claimed")]
     locs = [clean(l) for l in await db.locations.find({"project_id": project_id}).to_list(2000)]
     companies = {c["id"]: c["name"] for c in await db.companies.find().to_list(500)}
+    project = clean(await db.projects.find_one({"id": project_id}))
+    safe_name = (project.get("name") or "project").replace(" ", "-").replace("/", "-")
+    file_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     byid = {l["id"]: l for l in locs}
     def loc_path(lid):
@@ -2018,15 +2096,23 @@ async def progress_claim_excel(
             seen += 1
         return cur
 
-    completed = [v for v in visis if _is_complete_visi(v)]
+    completed = [v for v in visis if is_visi_complete(v)]
     if building:
         completed = [v for v in completed if (top_bld(v["location_id"]) or {}).get("name") == building]
     if trade:
         completed = [v for v in completed if _trade_of(v) == trade]
     if date_from:
-        completed = [v for v in completed if v.get("closed_at") and v["closed_at"] >= date_from]
+        completed = [v for v in completed if (completed_date(v) or "") >= date_from]
     if date_to:
-        completed = [v for v in completed if v.get("closed_at") and v["closed_at"] <= date_to]
+        completed = [v for v in completed if (completed_date(v) or "") <= date_to]
+
+    # Fetch photo counts for each completed item
+    vids = [v["id"] for v in completed]
+    att_counts = {}
+    if vids:
+        atts = await db.attachments.find({"visi_id": {"$in": vids}, "is_deleted": False}).to_list(5000)
+        for a in atts:
+            att_counts[a["visi_id"]] = att_counts.get(a["visi_id"], 0) + 1
 
     import io as _io
     from openpyxl import Workbook
@@ -2041,7 +2127,7 @@ async def progress_claim_excel(
         left=Side(style="thin", color="E2E8F0"), right=Side(style="thin", color="E2E8F0"),
         top=Side(style="thin", color="E2E8F0"), bottom=Side(style="thin", color="E2E8F0"),
     )
-    headers = ["Code", "Trade", "Building", "Location", "Assignee", "Completed Date", "Completed By"]
+    headers = ["Code", "Trade", "Building", "Location", "Assignee", "Completed Date", "Completed By", "Photo Count"]
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.font = header_font
@@ -2052,13 +2138,14 @@ async def progress_claim_excel(
         row_data = [
             v["code"], _trade_of(v), (top_bld(v["location_id"]) or {}).get("name", ""),
             loc_path(v["location_id"]), companies.get(v.get("assignee_company_id"), "-"),
-            v.get("closed_at", "")[:10] if v.get("closed_at") else "",
-            v.get("closed_by", ""),
+            (completed_date(v) or "")[:10],
+            v.get("closed_by") or v.get("created_by") or "",
+            att_counts.get(v["id"], 0),
         ]
         for col, val in enumerate(row_data, 1):
             cell = ws.cell(row=row_idx, column=col, value=val)
             cell.border = thin
-    for i, w in enumerate([14, 20, 20, 40, 24, 14, 16], 1):
+    for i, w in enumerate([14, 20, 20, 40, 24, 14, 16, 10], 1):
         ws.column_dimensions[chr(64 + i)].width = w
     ws.freeze_panes = "A2"
     buf = _io.BytesIO()
@@ -2067,17 +2154,12 @@ async def progress_claim_excel(
     return Response(
         content=buf.read(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=progress-claim.xlsx"},
+        headers={"Content-Disposition": f'attachment; filename="Progress-Claim_{safe_name}_{file_date}.xlsx"'}
     )
 
 
 def _is_complete_visi(v: dict) -> bool:
-    if v.get("override_status") == "na":
-        return True
-    steps = v.get("steps", [])
-    if not steps:
-        return False
-    return all(s.get("status") == "complete" for s in steps)
+    return is_visi_complete(v)
 
 
 # ------------------------------------------------------------------ Bulk Add Doors
