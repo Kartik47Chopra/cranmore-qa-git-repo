@@ -41,7 +41,7 @@ export default function Layout() {
   }, [projectId]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background relative">
+    <div className="flex h-screen h-dvh w-screen overflow-hidden bg-background relative">
       {/* Mobile overlay */}
       {drawerOpen && (
         <div className="md:hidden fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-[2px]" onClick={() => setDrawerOpen(false)} data-testid="sidebar-overlay" />

@@ -22,7 +22,10 @@ from fastapi.responses import FileResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId, Binary
 from pydantic import BaseModel, Field
-from status_utils import is_step_complete, is_visi_complete, completed_date
+from status_utils import (
+    is_step_complete, is_visi_complete, completed_date,
+    status_bucket, has_progress, checklist_progress, activity_date,
+)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("siteqa")
@@ -739,6 +742,7 @@ async def upload_attachment(
         "visi_id": visi_id, "step_id": step_id, "requirement_id": requirement_id, "is_deleted": False,
     }
     await db.attachments.insert_one(dict(att))
+    await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": visi_id, "user": user["name"], "text": f"uploaded photo '{file.filename}'", "type": "photo", "created_at": now_iso()})
     if requirement_id and step_id:
         v = await db.visis.find_one({"id": visi_id, "is_deleted": {"$ne": True}})
         if v:
@@ -976,10 +980,28 @@ async def document_thumb(doc_id: str, request: Request, auth: str = Query(None))
 
 # ------------------------------------------------------------------ Dashboard
 STATUS_ORDER = ["closed", "in_progress", "open", "in_review", "in_dispute", "cant_close", "na"]
+# 3-bucket mapping: 7-status → 3-bucket (for summary counters and drill-downs)
+_BUCKET_OF = {"closed": "completed", "in_progress": "in_progress", "open": "open",
+              "in_review": "in_progress", "in_dispute": "in_progress", "cant_close": "in_progress", "na": "completed"}
+
+
+def _bucket_counts(visis):
+    """Compute 3-bucket counts using the shared status_bucket function."""
+    c = {"completed": 0, "in_progress": 0, "open": 0}
+    for v in visis:
+        c[status_bucket(v)] += 1
+    return c
 
 
 @api_router.get("/dashboard")
-async def dashboard(project_id: str, user: dict = Depends(get_current_user)):
+async def dashboard(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    building: Optional[str] = Query(None),
+    trade: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+):
     raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
     is_admin = owner_admin(user)
     cid = user.get("company_id")
@@ -998,45 +1020,82 @@ async def dashboard(project_id: str, user: dict = Depends(get_current_user)):
             seen += 1
         return cur
 
-    total_steps = sum(v["progress_total"] for v in visis)
-    closed_steps = sum(v["progress_done"] for v in visis)
-    issues_open = sum(1 for v in visis if v["status"] in ("open", "in_progress"))
-    defects_open = sum(1 for v in visis if v["status"] == "in_dispute")
+    def _bld_name(v):
+        return (top_location(v["location_id"]) or {}).get("name", "General")
+
+    def _trade(v):
+        return "Miscellaneous" if (v.get("template_name") or "").startswith("Misc") else v.get("template_name")
+
+    # Apply filters
+    filtered = visis
+    if building:
+        filtered = [v for v in filtered if _bld_name(v) == building]
+    if trade:
+        filtered = [v for v in filtered if _trade(v) == trade]
+    if date_from or date_to:
+        kept = []
+        for v in filtered:
+            d = activity_date(v) or ""
+            if date_from and d < date_from:
+                continue
+            if date_to and d > date_to:
+                continue
+            kept.append(v)
+        filtered = kept
+
+    total_steps = sum(v["progress_total"] for v in filtered)
+    closed_steps = sum(v["progress_done"] for v in filtered)
+    issues_open = sum(1 for v in filtered if v["status"] in ("open", "in_progress"))
+    defects_open = sum(1 for v in filtered if v["status"] == "in_dispute")
     now = datetime.now(timezone.utc)
     overdue = 0
-    for v in visis:
+    for v in filtered:
         if v.get("due_date") and v["status"] not in ("closed", "na"):
             try:
                 if datetime.fromisoformat(v["due_date"]) < now:
                     overdue += 1
             except Exception:
                 pass
-    holdpoints = sum(1 for v in visis if v["visi_type"] == "Holdpoint" and v["status"] != "closed")
+    holdpoints = sum(1 for v in filtered if v["visi_type"] == "Holdpoint" and v["status"] != "closed")
+
+    # 3-bucket summary using shared function
+    buckets = _bucket_counts(filtered)
 
     def breakdown(key_fn):
         groups = {}
-        for v in visis:
+        for v in filtered:
             k = key_fn(v) or "Unassigned"
             groups.setdefault(k, {s: 0 for s in STATUS_ORDER})
             groups[k][v["status"]] += 1
         rows = []
         for name, counts in groups.items():
-            rows.append({"name": name, "counts": counts, "total": sum(counts.values())})
+            bk = {"completed": 0, "in_progress": 0, "open": 0}
+            for s, cnt in counts.items():
+                bk[_BUCKET_OF.get(s, "open")] += cnt
+            rows.append({"name": name, "counts": counts, "buckets": bk, "total": sum(counts.values())})
         return sorted(rows, key=lambda r: -r["total"])
 
     loc_groups = {}
-    for v in visis:
+    for v in filtered:
         top = top_location(v["location_id"]) or {}
         g = loc_groups.setdefault(top.get("name") or "Unassigned", {"id": top.get("id"), "counts": {s: 0 for s in STATUS_ORDER}})
         g["counts"][v["status"]] += 1
-    by_location = [{"name": k, "id": g["id"], "counts": g["counts"], "total": sum(g["counts"].values())}
-                  for k, g in loc_groups.items()]
+    by_location = []
+    for k, g in loc_groups.items():
+        bk = {"completed": 0, "in_progress": 0, "open": 0}
+        for s, cnt in g["counts"].items():
+            bk[_BUCKET_OF.get(s, "open")] += cnt
+        by_location.append({"name": k, "id": g["id"], "counts": g["counts"], "buckets": bk, "total": sum(g["counts"].values())})
     by_location.sort(key=lambda r: -r["total"])
     by_stage = breakdown(lambda v: v.get("stage"))
     by_discipline = breakdown(lambda v: v.get("discipline"))
     companies = {c["id"]: (c.get("name") or "Unassigned") for c in await db.companies.find().to_list(500)}
     by_company = breakdown(lambda v: companies.get(v.get("assignee_company_id")))
     top_templates = breakdown(lambda v: v.get("template_name"))[:20]
+
+    # Filter option lists
+    all_buildings = sorted(set(_bld_name(v) for v in visis))
+    all_trades = sorted(set(_trade(v) for v in visis if _trade(v)))
 
     # Active users per company over the last 7 days (from the activity log)
     week_ago = (now - timedelta(days=7)).isoformat()
@@ -1053,7 +1112,58 @@ async def dashboard(project_id: str, user: dict = Depends(get_current_user)):
         active_by_company[cname] = active_by_company.get(cname, 0) + 1
     active_users = sorted(({"name": k, "count": v} for k, v in active_by_company.items()), key=lambda r: -r["count"])
 
-    # Project activity: cumulative Visis created vs closed, bucketed by month
+    # ---- Daily activity graph (real data from timestamps) ----
+    # For each day: items moved to in_progress, items completed, photos added.
+    # Built from visi last_updated/closed_at and attachment uploaded_at.
+    # Also cumulative total completed and total with progress.
+    att_cursor = db.attachments.find({"is_deleted": False})
+    # Limit attachment scan to this project's visis
+    all_visi_ids = {v["id"] for v in visis}
+    all_atts = await db.attachments.find({"visi_id": {"$in": list(all_visi_ids)}, "is_deleted": False}).to_list(10000)
+
+    daily = {}
+    unknown_date_count = 0
+
+    def _day_key(iso_str):
+        if not iso_str:
+            return None
+        try:
+            return iso_str[:10]
+        except Exception:
+            return None
+
+    for v in visis:
+        b = status_bucket(v)
+        if b == "open":
+            continue  # no progress yet
+        d = _day_key(activity_date(v))
+        if not d:
+            unknown_date_count += 1
+            continue
+        day = daily.setdefault(d, {"date": d, "in_progress": 0, "completed": 0, "photos": 0})
+        if b == "completed":
+            day["completed"] += 1
+        else:
+            day["in_progress"] += 1
+
+    for a in all_atts:
+        d = _day_key(a.get("uploaded_at"))
+        if not d:
+            continue
+        day = daily.setdefault(d, {"date": d, "in_progress": 0, "completed": 0, "photos": 0})
+        day["photos"] += 1
+
+    # Sort and add cumulative
+    daily_sorted = sorted(daily.values(), key=lambda d: d["date"])
+    cum_c = 0
+    cum_p = 0
+    for d in daily_sorted:
+        cum_c += d["completed"]
+        cum_p += d["completed"] + d["in_progress"]
+        d["cum_completed"] = cum_c
+        d["cum_with_progress"] = cum_p
+
+    # Legacy monthly series (kept for backward compat)
     months = {}
     for v in visis:
         try:
@@ -1074,9 +1184,97 @@ async def dashboard(project_id: str, user: dict = Depends(get_current_user)):
             "issues_open": issues_open, "defects_open": defects_open,
             "overdue": overdue, "holdpoints_open": holdpoints,
         },
+        "summary": {
+            "total": len(filtered),
+            "completed": buckets["completed"],
+            "in_progress": buckets["in_progress"],
+            "open": buckets["open"],
+        },
         "by_location": by_location, "by_stage": by_stage, "by_discipline": by_discipline,
         "by_company": by_company, "top_templates": top_templates,
         "active_users": active_users, "activity_series": activity_series,
+        "daily_activity": daily_sorted,
+        "unknown_date_count": unknown_date_count,
+        "filter_options": {"buildings": all_buildings, "trades": all_trades},
+    }
+
+
+@api_router.get("/dashboard/drilldown")
+async def dashboard_drilldown(
+    project_id: str,
+    group_by: str = Query(...),  # location | stage | discipline | company | template
+    group_value: str = Query(...),
+    bucket: Optional[str] = Query(None),  # completed | in_progress | open (optional filter)
+    user: dict = Depends(get_current_user),
+):
+    """Return the list of items in a dashboard group for drill-down."""
+    raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
+    is_admin = owner_admin(user)
+    cid = user.get("company_id")
+    visis = [serialize_visi(v) for v in raw if visible_to_company(v, cid, is_admin)]
+
+    locs = {l["id"]: clean(l) for l in await db.locations.find({"project_id": project_id}).to_list(2000)}
+
+    def top_location(loc_id):
+        cur = locs.get(loc_id)
+        seen = 0
+        while cur and cur.get("parent_id") and seen < 20:
+            parent = locs.get(cur["parent_id"])
+            if not parent or not parent.get("parent_id"):
+                return parent or cur
+            cur = parent
+            seen += 1
+        return cur
+
+    def loc_path(lid):
+        names, cur, seen = [], locs.get(lid), 0
+        while cur and seen < 30:
+            names.insert(0, cur["name"])
+            cur = locs.get(cur.get("parent_id"))
+            seen += 1
+        return " / ".join(names)
+
+    companies = {c["id"]: (c.get("name") or "Unassigned") for c in await db.companies.find().to_list(500)}
+
+    def _bld_name(v):
+        return (top_location(v["location_id"]) or {}).get("name", "General")
+
+    def _trade(v):
+        return "Miscellaneous" if (v.get("template_name") or "").startswith("Misc") else v.get("template_name")
+
+    # Filter to group
+    if group_by == "location":
+        group_visis = [v for v in visis if (top_location(v["location_id"]) or {}).get("name") == group_value]
+    elif group_by == "stage":
+        group_visis = [v for v in visis if (v.get("stage") or "Unassigned") == group_value]
+    elif group_by == "discipline":
+        group_visis = [v for v in visis if (v.get("discipline") or "Unassigned") == group_value]
+    elif group_by == "company":
+        group_visis = [v for v in visis if companies.get(v.get("assignee_company_id"), "Unassigned") == group_value]
+    elif group_by == "template":
+        group_visis = [v for v in visis if (v.get("template_name") or "Unassigned") == group_value]
+    else:
+        group_visis = visis
+
+    # Optional bucket filter
+    if bucket:
+        group_visis = [v for v in group_visis if status_bucket(v) == bucket]
+
+    bk = _bucket_counts(group_visis)
+    items = []
+    for v in sorted(group_visis, key=lambda v: (v.get("template_name", ""), v.get("code", ""))):
+        items.append({
+            "id": v["id"], "code": v.get("code", ""), "template_name": v.get("template_name", ""),
+            "location_path": loc_path(v["location_id"]), "status": v["status"],
+            "bucket": status_bucket(v), "progress_done": v["progress_done"],
+            "progress_total": v["progress_total"], "assignee": companies.get(v.get("assignee_company_id"), "—"),
+        })
+
+    return {
+        "group_by": group_by, "group_value": group_value, "bucket": bucket,
+        "total": len(group_visis), "completed": bk["completed"],
+        "in_progress": bk["in_progress"], "open": bk["open"],
+        "items": items[:500],  # cap for performance
     }
 
 
@@ -1294,16 +1492,16 @@ async def report_summary(project_id: str, user: dict = Depends(get_current_user)
         g["total"] += 1
         g["step_done"] += v["progress_done"]
         g["step_total"] += v["progress_total"]
-        if is_visi_complete(v):
+        bk = status_bucket(v)
+        if bk == "completed":
             g["closed"] += 1
-        elif v["status"] == "in_progress":
+        elif bk == "in_progress":
             g["in_progress"] += 1
-        elif v["status"] == "open":
-            g["open"] += 1
         else:
-            g["other"] += 1
+            g["open"] += 1
     buildings = [{"building": b, "trades": [{"trade": t, **vals} for t, vals in sorted(tr.items())]} for b, tr in sorted(result.items())]
-    overall = {"total": len(visis), "closed": sum(1 for v in visis if is_visi_complete(v)),
+    overall = {"total": len(visis), "closed": sum(1 for v in visis if status_bucket(v) == "completed"),
+               "in_progress": sum(1 for v in visis if status_bucket(v) == "in_progress"),
                "step_done": sum(v["progress_done"] for v in visis), "step_total": sum(v["progress_total"] for v in visis)}
     return {"buildings": buildings, "overall": overall, "project": clean(await db.projects.find_one({"id": project_id}))}
 
@@ -1427,15 +1625,31 @@ async def report_pdf(project_id: str, request: Request, auth: str = Query(None))
 
     buf = _io.BytesIO()
     page_w, page_h = A4
-    page_num = [0]
 
-    def on_page(canvas, doc):
-        page_num[0] += 1
-        canvas.saveState()
-        canvas.setFont("Helvetica", 8)
-        canvas.setFillColor(colors.HexColor("#94A3B8"))
-        canvas.drawCentredString(page_w / 2, 10 * mm, f"Page {page_num[0]}")
-        canvas.restoreState()
+    # Melbourne time for the generated timestamp
+    from zoneinfo import ZoneInfo
+    melb_now = datetime.now(ZoneInfo("Australia/Melbourne"))
+    melb_str = melb_now.strftime("%d/%m/%Y, %I:%M:%S %p Melbourne time")
+
+    # NumberedCanvas for "Page X of Y"
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    class _NumberedCanvas(rl_canvas.Canvas):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self._saved = []
+        def showPage(self):
+            self._saved.append(dict(self.__dict__))
+            self._startPage()
+        def save(self):
+            n = len(self._saved)
+            for s in self._saved:
+                self.__dict__.update(s)
+                self.setFont("Helvetica", 8)
+                self.setFillColor(colors.HexColor("#94A3B8"))
+                self.drawCentredString(page_w / 2, 10 * mm, f"Page {self._pageNumber} of {n}")
+                super().showPage()
+            super().save()
 
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=18 * mm, bottomMargin=18 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
     styles = getSampleStyleSheet()
@@ -1448,23 +1662,24 @@ async def report_pdf(project_id: str, request: Request, auth: str = Query(None))
     styles.add(ParagraphStyle(name="TH", fontName="Helvetica-Bold", fontSize=9, textColor=colors.white, leading=12))
     story = []
 
-    # Header
-    story.append(Paragraph(f"<b>{project.get('name', 'Progress Report')}</b>", ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=18, textColor=colors.HexColor("#0F172A"))))
-    story.append(Paragraph(f"{project.get('address', '')}", styles["Small"]))
-    story.append(Paragraph(f"Cranmore Carpenters QA — Generated {now_iso()[:19]}", styles["Small"]))
-    story.append(Spacer(1, 8))
+    # Header — proper spacing to prevent overlap
+    story.append(Paragraph(project.get("name", "Progress Report"), ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=18, leading=24, spaceAfter=8, textColor=colors.HexColor("#0F172A"))))
+    story.append(Paragraph(project.get("address", "") or "", ParagraphStyle("addr", fontName="Helvetica", fontSize=10, leading=14, spaceAfter=4, textColor=colors.HexColor("#64748B"))))
+    story.append(Paragraph(f"Cranmore Carpenters QA — Generated {melb_str}", styles["Small"]))
+    story.append(Spacer(1, 10))
 
-    # Summary table — use Paragraphs to prevent overlap
+    # Summary table — use shared status_bucket for consistent numbers
     total = len(visis)
-    closed = sum(1 for v in visis if v["status"] == "closed")
+    closed = sum(1 for v in visis if status_bucket(v) == "completed")
+    in_prog = sum(1 for v in visis if status_bucket(v) == "in_progress")
     step_done = sum(v["progress_done"] for v in visis)
     step_total = sum(v["progress_total"] for v in visis)
     pct = round((step_done / step_total * 100) if step_total else 0)
     summary_data = [
-        [Paragraph("Total inspections", styles["TH"]), Paragraph("Closed", styles["TH"]), Paragraph("Checklist progress", styles["TH"])],
-        [Paragraph(str(total), styles["TC"]), Paragraph(str(closed), styles["TC"]), Paragraph(f"{pct}%", styles["TC"])],
+        [Paragraph("Total inspections", styles["TH"]), Paragraph("Completed", styles["TH"]), Paragraph("In Progress", styles["TH"]), Paragraph("Checklist progress", styles["TH"])],
+        [Paragraph(str(total), styles["TC"]), Paragraph(str(closed), styles["TC"]), Paragraph(str(in_prog), styles["TC"]), Paragraph(f"{pct}%", styles["TC"])],
     ]
-    summary_tbl = Table(summary_data, colWidths=[60 * mm, 60 * mm, 60 * mm])
+    summary_tbl = Table(summary_data, colWidths=[45 * mm, 45 * mm, 45 * mm, 45 * mm])
     summary_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
@@ -1486,8 +1701,13 @@ async def report_pdf(project_id: str, request: Request, auth: str = Query(None))
         g["total"] += 1
         g["step_done"] += v["progress_done"]
         g["step_total"] += v["progress_total"]
-        st = v["status"]
-        g[st if st in ("closed", "in_progress", "open") else "open"] += 1
+        bk = status_bucket(v)
+        if bk == "completed":
+            g["closed"] += 1
+        elif bk == "in_progress":
+            g["in_progress"] += 1
+        else:
+            g["open"] += 1
 
     bld_data = [[
         Paragraph("Building", styles["TH"]), Paragraph("Trade", styles["TH"]),
@@ -1505,7 +1725,7 @@ async def report_pdf(project_id: str, request: Request, auth: str = Query(None))
                 Paragraph(f"{p}%", styles["TC"]),
             ])
     if len(bld_data) > 1:
-        bld_tbl = Table(bld_data, colWidths=[40 * mm, 35 * mm, 15 * mm, 15 * mm, 20 * mm, 15 * mm, 20 * mm], repeatRows=1)
+        bld_tbl = Table(bld_data, colWidths=[55 * mm, 40 * mm, 15 * mm, 15 * mm, 20 * mm, 15 * mm, 20 * mm], repeatRows=1)
         bld_tbl.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
@@ -1566,7 +1786,7 @@ async def report_pdf(project_id: str, request: Request, auth: str = Query(None))
         story.append(KeepTogether(item_flow))
         story.append(Spacer(1, 6))
 
-    doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
+    doc.build(story, canvasmaker=_NumberedCanvas)
     buf.seek(0)
     return Response(
         content=buf.read(),
@@ -1964,11 +2184,13 @@ async def progress_claim_preview(
     date_to: Optional[str] = Query(None),
     building: Optional[str] = Query(None),
     trade: Optional[str] = Query(None),
+    include: Optional[str] = Query(None),  # both | completed | in_progress
     auth: str = Query(None),
 ):
-    """Return count of completed items matching filters, for live preview before generating."""
+    """Return count of items with progress matching filters, for live preview before generating."""
     verify_token(request, auth)
     only_unclaimed = request.query_params.get("only_unclaimed", "").lower() in ("1", "true", "yes")
+    inc = (include or "both").lower()
     raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
     visis = [serialize_visi(v) for v in raw]
     locs = [clean(l) for l in await db.locations.find({"project_id": project_id}).to_list(2000)]
@@ -1984,26 +2206,41 @@ async def progress_claim_preview(
             seen += 1
         return cur
 
-    completed = [v for v in visis if is_visi_complete(v)]
-    if only_unclaimed:
-        completed = [v for v in completed if not v.get("claimed")]
-    if building:
-        completed = [v for v in completed if (top_bld(v["location_id"]) or {}).get("name") == building]
-    if trade:
-        completed = [v for v in completed if _trade_of(v) == trade]
-    if date_from:
-        completed = [v for v in completed if (completed_date(v) or "") >= date_from]
-    if date_to:
-        completed = [v for v in completed if (completed_date(v) or "") <= date_to]
+    # Filter to items with progress (completed and/or in-progress)
+    if inc == "completed":
+        claim_items = [v for v in visis if status_bucket(v) == "completed"]
+    elif inc == "in_progress":
+        claim_items = [v for v in visis if status_bucket(v) == "in_progress"]
+    else:  # both (default)
+        claim_items = [v for v in visis if has_progress(v)]
 
-    vids = [v["id"] for v in completed]
+    if only_unclaimed:
+        claim_items = [v for v in claim_items if not v.get("claimed")]
+    if building:
+        claim_items = [v for v in claim_items if (top_bld(v["location_id"]) or {}).get("name") == building]
+    if trade:
+        claim_items = [v for v in claim_items if _trade_of(v) == trade]
+    if date_from:
+        claim_items = [v for v in claim_items if (activity_date(v) or "") >= date_from]
+    if date_to:
+        claim_items = [v for v in claim_items if (activity_date(v) or "") <= date_to]
+
+    vids = [v["id"] for v in claim_items]
     atts = await db.attachments.find({"visi_id": {"$in": vids}, "is_deleted": False}).to_list(5000) if vids else []
     atts_by_visi = set()
     for a in atts:
         atts_by_visi.add(a["visi_id"])
-    with_photos = sum(1 for v in completed if v["id"] in atts_by_visi)
+    with_photos = sum(1 for v in claim_items if v["id"] in atts_by_visi)
 
-    return {"total": len(completed), "with_photos": with_photos}
+    completed_count = sum(1 for v in claim_items if status_bucket(v) == "completed")
+    in_progress_count = sum(1 for v in claim_items if status_bucket(v) == "in_progress")
+
+    return {
+        "total": len(claim_items),
+        "completed": completed_count,
+        "in_progress": in_progress_count,
+        "with_photos": with_photos,
+    }
 
 
 @api_router.get("/reports/progress-claim")
@@ -2015,12 +2252,14 @@ async def progress_claim_pdf(
     building: Optional[str] = Query(None),
     trade: Optional[str] = Query(None),
     only_unclaimed: Optional[str] = Query(None),
+    include: Optional[str] = Query(None),  # both | completed | in_progress
     auth: str = Query(None),
 ):
-    """Generate a Progress Claim PDF with only completed items and photos."""
+    """Generate a Progress Claim PDF with completed and/or in-progress items and photos."""
     verify_token(request, auth)
     from progress_claim import generate_progress_claim_pdf
 
+    inc = (include or "both").lower()
     raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
     visis = [serialize_visi(v) for v in raw]
     if only_unclaimed and only_unclaimed.lower() in ("1", "true", "yes"):
@@ -2048,6 +2287,7 @@ async def progress_claim_pdf(
         date_to=date_to,
         building_filter=building,
         trade_filter=trade,
+        include=inc,
     )
     return Response(
         content=pdf_bytes,
@@ -2065,10 +2305,12 @@ async def progress_claim_excel(
     building: Optional[str] = Query(None),
     trade: Optional[str] = Query(None),
     only_unclaimed: Optional[str] = Query(None),
+    include: Optional[str] = Query(None),  # both | completed | in_progress
     auth: str = Query(None),
 ):
-    """Excel summary of completed items for accounts."""
+    """Excel summary of items with progress for accounts."""
     verify_token(request, auth)
+    inc = (include or "both").lower()
     raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
     visis = [serialize_visi(v) for v in raw]
     if only_unclaimed and only_unclaimed.lower() in ("1", "true", "yes"):
@@ -2096,18 +2338,24 @@ async def progress_claim_excel(
             seen += 1
         return cur
 
-    completed = [v for v in visis if is_visi_complete(v)]
+    # Filter to items with progress
+    if inc == "completed":
+        claim_items = [v for v in visis if status_bucket(v) == "completed"]
+    elif inc == "in_progress":
+        claim_items = [v for v in visis if status_bucket(v) == "in_progress"]
+    else:
+        claim_items = [v for v in visis if has_progress(v)]
     if building:
-        completed = [v for v in completed if (top_bld(v["location_id"]) or {}).get("name") == building]
+        claim_items = [v for v in claim_items if (top_bld(v["location_id"]) or {}).get("name") == building]
     if trade:
-        completed = [v for v in completed if _trade_of(v) == trade]
+        claim_items = [v for v in claim_items if _trade_of(v) == trade]
     if date_from:
-        completed = [v for v in completed if (completed_date(v) or "") >= date_from]
+        claim_items = [v for v in claim_items if (activity_date(v) or "") >= date_from]
     if date_to:
-        completed = [v for v in completed if (completed_date(v) or "") <= date_to]
+        claim_items = [v for v in claim_items if (activity_date(v) or "") <= date_to]
 
-    # Fetch photo counts for each completed item
-    vids = [v["id"] for v in completed]
+    # Fetch photo counts for each item
+    vids = [v["id"] for v in claim_items]
     att_counts = {}
     if vids:
         atts = await db.attachments.find({"visi_id": {"$in": vids}, "is_deleted": False}).to_list(5000)
@@ -2127,25 +2375,29 @@ async def progress_claim_excel(
         left=Side(style="thin", color="E2E8F0"), right=Side(style="thin", color="E2E8F0"),
         top=Side(style="thin", color="E2E8F0"), bottom=Side(style="thin", color="E2E8F0"),
     )
-    headers = ["Code", "Trade", "Building", "Location", "Assignee", "Completed Date", "Completed By", "Photo Count"]
+    headers = ["Code", "Trade", "Building", "Location", "Status", "Checklist Progress", "Last Activity Date", "Completed By", "Photo Count"]
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center")
         cell.border = thin
-    for row_idx, v in enumerate(completed, 2):
+    for row_idx, v in enumerate(claim_items, 2):
+        bk = status_bucket(v)
+        status_label = "Completed" if bk == "completed" else "In Progress" if bk == "in_progress" else "Open"
+        pct = round((v["progress_done"] / v["progress_total"] * 100) if v["progress_total"] else 0)
         row_data = [
             v["code"], _trade_of(v), (top_bld(v["location_id"]) or {}).get("name", ""),
-            loc_path(v["location_id"]), companies.get(v.get("assignee_company_id"), "-"),
-            (completed_date(v) or "")[:10],
+            loc_path(v["location_id"]), status_label,
+            f"{v['progress_done']}/{v['progress_total']} ({pct}%)",
+            (activity_date(v) or "")[:10],
             v.get("closed_by") or v.get("created_by") or "",
             att_counts.get(v["id"], 0),
         ]
         for col, val in enumerate(row_data, 1):
             cell = ws.cell(row=row_idx, column=col, value=val)
             cell.border = thin
-    for i, w in enumerate([14, 20, 20, 40, 24, 14, 16, 10], 1):
+    for i, w in enumerate([14, 20, 20, 40, 14, 18, 16, 16, 10], 1):
         ws.column_dimensions[chr(64 + i)].width = w
     ws.freeze_panes = "A2"
     buf = _io.BytesIO()
