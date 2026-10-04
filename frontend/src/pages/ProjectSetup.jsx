@@ -4,8 +4,9 @@ import { useProject } from "@/context/ProjectContext";
 import { useAuth } from "@/context/AuthContext";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import LocationManager from "@/components/LocationManager";
-import { Building, Users, FileStack, MapPin, Mail } from "lucide-react";
+import { Building, Users, FileStack, MapPin, Mail, DoorOpen } from "lucide-react";
 import { toast } from "sonner";
+import BulkAddDoors from "@/components/BulkAddDoors";
 
 export default function ProjectSetup() {
   const { projectId, project } = useProject();
@@ -46,6 +47,7 @@ export default function ProjectSetup() {
             <TabsTrigger value="companies" data-testid="setup-companies"><Users size={14} className="mr-1.5" /> Companies</TabsTrigger>
             <TabsTrigger value="templates" data-testid="setup-templates"><FileStack size={14} className="mr-1.5" /> Templates</TabsTrigger>
             <TabsTrigger value="locations" data-testid="setup-locations"><MapPin size={14} className="mr-1.5" /> Locations</TabsTrigger>
+            {user?.role === "admin" && <TabsTrigger value="doors" data-testid="setup-doors"><DoorOpen size={14} className="mr-1.5" /> Bulk Doors</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="companies" className="flex-1 overflow-y-auto px-6 py-4 mt-0">
@@ -101,6 +103,10 @@ export default function ProjectSetup() {
               isAdmin={user?.role === "admin"}
               onChange={() => api.get(`/projects/${projectId}/locations`).then(({ data }) => setLocations(data))}
             />
+          </TabsContent>
+
+          <TabsContent value="doors" className="flex-1 overflow-y-auto px-6 py-4 mt-0">
+            <BulkAddDoors locations={locations} companies={companies} />
           </TabsContent>
         </Tabs>
       </div>

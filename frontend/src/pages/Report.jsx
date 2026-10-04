@@ -4,7 +4,7 @@ import { useProject } from "@/context/ProjectContext";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { Printer, FileSpreadsheet, FileDown, CheckCircle2, Circle, Camera, Loader2, FileCheck2, ChevronDown, ChevronRight } from "lucide-react";
+import { Printer, FileSpreadsheet, FileDown, CheckCircle2, Circle, Camera, Loader2, FileCheck2, ChevronDown, ChevronRight, CheckSquare } from "lucide-react";
 import { toast } from "sonner";
 
 const APP_VERSION = "v2.1 — 2026-10-05";
@@ -28,6 +28,7 @@ function ReportInner() {
   const [claimFilters, setClaimFilters] = useState({ dateFrom: "", dateTo: "", building: "", trade: "", onlyUnclaimed: false, include: "both" });
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [marking, setMarking] = useState(false);
 
   useEffect(() => {
     if (!projectId) return;
@@ -124,6 +125,33 @@ function ReportInner() {
       toast.error(msg);
     } finally {
       setDownloading(null);
+    }
+  };
+
+  const markAsClaimed = async () => {
+    if (preview && preview.total === 0) {
+      toast.error("No items match these filters.");
+      return;
+    }
+    if (!confirm(`Mark ${preview?.total || "all"} matching items as claimed? They will be excluded from future "only unclaimed" claims.`)) return;
+    setMarking(true);
+    try {
+      const payload = {
+        project_id: projectId,
+        include: claimFilters.include,
+        date_from: claimFilters.dateFrom || undefined,
+        date_to: claimFilters.dateTo || undefined,
+        building: claimFilters.building || undefined,
+        trade: claimFilters.trade || undefined,
+        only_unclaimed: claimFilters.onlyUnclaimed,
+      };
+      const { data } = await api.post("/reports/progress-claim/mark-claimed", payload);
+      toast.success(`${data.marked} items marked as claimed`);
+      fetchPreview();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Could not mark items as claimed");
+    } finally {
+      setMarking(false);
     }
   };
 
@@ -238,6 +266,10 @@ function ReportInner() {
               <Button size="sm" variant="outline" onClick={() => downloadClaim("excel")} disabled={downloading}>
                 {downloading?.endsWith(".xlsx") ? <Loader2 size={16} className="mr-2 animate-spin" /> : <FileSpreadsheet size={16} className="mr-2" />}
                 Excel Summary
+              </Button>
+              <Button size="sm" variant="outline" onClick={markAsClaimed} disabled={marking || (preview?.total === 0)} className="border-amber-600 text-amber-700 hover:bg-amber-50">
+                {marking ? <Loader2 size={16} className="mr-2 animate-spin" /> : <CheckSquare size={16} className="mr-2" />}
+                Mark as Claimed
               </Button>
             </div>
             {/* Live preview line */}

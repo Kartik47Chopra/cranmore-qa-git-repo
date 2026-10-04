@@ -2414,6 +2414,67 @@ def _is_complete_visi(v: dict) -> bool:
     return is_visi_complete(v)
 
 
+# ------------------------------------------------------------------ Mark as Claimed
+@api_router.post("/reports/progress-claim/mark-claimed")
+async def mark_claimed(body: dict, user: dict = Depends(get_current_user)):
+    """Mark all visis matching the given filters as claimed (so they won't appear in future 'only unclaimed' claims)."""
+    project_id = body.get("project_id")
+    if not project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    inc = (body.get("include") or "both").lower()
+    date_from = body.get("date_from")
+    date_to = body.get("date_to")
+    building = body.get("building")
+    trade = body.get("trade")
+    only_unclaimed = body.get("only_unclaimed", False)
+
+    raw = await db.visis.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(10000)
+    visis = [serialize_visi(v) for v in raw]
+    locs = [clean(l) for l in await db.locations.find({"project_id": project_id}).to_list(2000)]
+    byid = {l["id"]: l for l in locs}
+
+    def top_bld(lid):
+        cur, seen = byid.get(lid), 0
+        while cur and cur.get("parent_id") and seen < 30:
+            p = byid.get(cur["parent_id"])
+            if not p:
+                break
+            cur = p
+            seen += 1
+        return cur
+
+    if inc == "completed":
+        claim_items = [v for v in visis if status_bucket(v) == "completed"]
+    elif inc == "in_progress":
+        claim_items = [v for v in visis if status_bucket(v) == "in_progress"]
+    else:
+        claim_items = [v for v in visis if has_progress(v)]
+
+    if only_unclaimed:
+        claim_items = [v for v in claim_items if not v.get("claimed")]
+    if building:
+        claim_items = [v for v in claim_items if (top_bld(v["location_id"]) or {}).get("name") == building]
+    if trade:
+        claim_items = [v for v in claim_items if _trade_of(v) == trade]
+    if date_from:
+        claim_items = [v for v in claim_items if (activity_date(v) or "") >= date_from]
+    if date_to:
+        claim_items = [v for v in claim_items if (activity_date(v) or "") <= date_to]
+
+    visi_ids = [v["id"] for v in claim_items]
+    if not visi_ids:
+        raise HTTPException(status_code=400, detail="No items match these filters")
+
+    now = now_iso()
+    res = await db.visis.update_many(
+        {"id": {"$in": visi_ids}},
+        {"$set": {"claimed": True, "claimed_at": now, "claimed_by": user["name"]}},
+    )
+    await db.activity.insert_one({"id": str(uuid.uuid4()), "visi_id": None, "user": user["name"],
+        "text": f"Marked {res.modified_count} items as claimed for progress claim", "type": "claim", "created_at": now})
+    return {"marked": res.modified_count, "total": len(visi_ids)}
+
+
 # ------------------------------------------------------------------ Bulk Add Doors
 @api_router.post("/admin/bulk-doors")
 async def bulk_add_doors(body: dict, user: dict = Depends(require_admin)):
