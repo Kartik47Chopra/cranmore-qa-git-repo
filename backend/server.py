@@ -2538,6 +2538,45 @@ async def bulk_add_doors(body: dict, user: dict = Depends(require_admin)):
     return {"created": created, "skipped": skipped, "total_created": len(created), "total_skipped": len(skipped)}
 
 
+# ------------------------------------------------------------------ Database export
+import tarfile
+import io as _io
+from bson.json_util import dumps as bson_dumps
+
+@api_router.get("/export/database")
+async def export_database(user: dict = Depends(get_current_user)):
+    """Admin-only: package all MongoDB collections + physical drawing/upload files into a downloadable .tar.gz."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    buf = _io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        # 1. Export every collection as JSON (BSON-safe via bson.json_util)
+        collection_names = await db.list_collection_names()
+        for cname in sorted(collection_names):
+            docs = await db[cname].find().to_list(100000)
+            json_str = bson_dumps(docs, indent=2)
+            info = tarfile.TarInfo(name=f"collections/{cname}.json")
+            info.size = len(json_str.encode("utf-8"))
+            tar.addfile(info, _io.BytesIO(json_str.encode("utf-8")))
+
+        # 2. Include physical drawing files from the seed data dir
+        for base_dir, arc_prefix in [(DATA_DIR, "drawings"), (LOCAL_UPLOAD_DIR, "uploads")]:
+            if base_dir.exists():
+                for fp in base_dir.rglob("*"):
+                    if fp.is_file():
+                        arcname = f"{arc_prefix}/{fp.relative_to(base_dir)}"
+                        tar.add(str(fp), arcname=arcname)
+
+    buf.seek(0)
+    filename = f"cranmore_qa_export_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.tar.gz"
+    return Response(
+        content=buf.read(),
+        media_type="application/gzip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ------------------------------------------------------------------ App wiring
 app.include_router(api_router)
 app.add_middleware(

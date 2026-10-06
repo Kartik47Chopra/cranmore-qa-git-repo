@@ -4,7 +4,7 @@ import { useProject } from "@/context/ProjectContext";
 import { useAuth } from "@/context/AuthContext";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import LocationManager from "@/components/LocationManager";
-import { Building, Users, FileStack, MapPin, Mail, DoorOpen } from "lucide-react";
+import { Building, Users, FileStack, MapPin, Mail, DoorOpen, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import BulkAddDoors from "@/components/BulkAddDoors";
 
@@ -34,6 +34,27 @@ export default function ProjectSetup() {
   };
 
   const compName = (id) => companies.find((c) => c.id === id)?.name || "—";
+  const [exporting, setExporting] = useState(false);
+
+  const exportDatabase = async () => {
+    setExporting(true);
+    try {
+      const response = await api.get("/export/database", { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = response.headers["content-disposition"]?.split("filename=")[1]?.replace(/"/g, "") || "cranmore_export.tar.gz";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("Database export downloaded");
+    } catch (e) {
+      toast.error("Export failed — you must be an admin");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -48,6 +69,7 @@ export default function ProjectSetup() {
             <TabsTrigger value="templates" data-testid="setup-templates"><FileStack size={14} className="mr-1.5" /> Templates</TabsTrigger>
             <TabsTrigger value="locations" data-testid="setup-locations"><MapPin size={14} className="mr-1.5" /> Locations</TabsTrigger>
             {user?.role === "admin" && <TabsTrigger value="doors" data-testid="setup-doors"><DoorOpen size={14} className="mr-1.5" /> Bulk Doors</TabsTrigger>}
+            {user?.role === "admin" && <TabsTrigger value="export" data-testid="setup-export"><Download size={14} className="mr-1.5" /> Export</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="companies" className="flex-1 overflow-y-auto px-6 py-4 mt-0">
@@ -107,6 +129,25 @@ export default function ProjectSetup() {
 
           <TabsContent value="doors" className="flex-1 overflow-y-auto px-6 py-4 mt-0">
             <BulkAddDoors locations={locations} companies={companies} />
+          </TabsContent>
+
+          <TabsContent value="export" className="flex-1 overflow-y-auto px-6 py-4 mt-0">
+            <div className="max-w-2xl">
+              <h2 className="text-lg font-bold mb-2">Export Database</h2>
+              <p className="text-sm text-slate-600 mb-4">
+                Download a complete archive of all database records (inspections, locations, templates, projects, companies, users, documents with embedded file data) plus all physical drawing and upload files. The archive is a <code className="bg-slate-100 px-1 rounded">.tar.gz</code> containing JSON files per collection and the drawing files in their original format.
+              </p>
+              <button
+                onClick={exportDatabase}
+                disabled={exporting}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                data-testid="export-database-btn"
+              >
+                {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                {exporting ? "Exporting..." : "Export Database"}
+              </button>
+              <p className="text-xs text-slate-400 mt-3">Admin only · The export may take a minute for large datasets.</p>
+            </div>
           </TabsContent>
         </Tabs>
       </div>
