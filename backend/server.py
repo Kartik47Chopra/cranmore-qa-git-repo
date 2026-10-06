@@ -76,28 +76,35 @@ def set_auth_cookies(response: Response, access: str, refresh: str):
 
 
 async def get_current_user(request: Request) -> dict:
+    """Auth is disabled — always returns the admin user so anyone can use the app."""
     token = request.cookies.get("access_token")
     if not token:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    try:
-        payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
-        if payload.get("type") != "access":
-            raise HTTPException(status_code=401, detail="Invalid token type")
-        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        user["id"] = str(user["_id"])
-        user.pop("_id", None)
-        user.pop("password_hash", None)
-        return user
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    if token:
+        try:
+            payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+            if payload.get("type") == "access":
+                user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+                if user:
+                    user["id"] = str(user["_id"])
+                    user.pop("_id", None)
+                    user.pop("password_hash", None)
+                    return user
+        except Exception:
+            pass
+    # No valid token — fall back to the admin user
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com")
+    user = await db.users.find_one({"email": admin_email})
+    if not user:
+        user = await db.users.find_one({"role": "admin"})
+    if not user:
+        raise HTTPException(status_code=500, detail="No admin user found")
+    user["id"] = str(user["_id"])
+    user.pop("_id", None)
+    user.pop("password_hash", None)
+    return user
 
 
 # ------------------------------------------------------------------ Storage
@@ -137,17 +144,8 @@ async def get_doc_bytes(doc: dict) -> bytes | None:
 
 
 def verify_token(request: Request, auth: Optional[str] = None):
-    token = request.cookies.get("access_token") or auth
-    if not token:
-        ah = request.headers.get("Authorization", "")
-        if ah.startswith("Bearer "):
-            token = ah[7:]
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    try:
-        jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    """Auth is disabled — always passes."""
+    return
 
 
 def init_storage(force: bool = False):

@@ -15,13 +15,17 @@ export function AuthProvider({ children }) {
   };
 
   useEffect(() => {
+    // Auth is disabled — always logged in as admin
     api
       .get("/auth/me")
       .then(({ data }) => {
         setUser(data);
         loadCompanies();
       })
-      .catch(() => setUser(false));
+      .catch(() => {
+        // Even if the API call fails, treat as logged-in admin
+        setUser({ id: "admin", email: "admin", name: "Admin", role: "admin" });
+      });
   }, []);
 
   const login = async (email, password) => {
